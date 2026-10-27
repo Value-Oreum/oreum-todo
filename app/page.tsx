@@ -4,7 +4,6 @@ import Image from "next/image";
 import {
   Plus,
   Search,
-  ArrowUpRight,
   ArrowRight,
   Bell,
   X,
@@ -26,18 +25,21 @@ import {
   samples,
   quadrants,
   quadrant,
-  changed,
-  reviewNeeded,
   members,
 } from "../lib/domain";
 import { supabase } from "../lib/supabase";
+import { MatrixBoard } from "./components/MatrixBoard";
+import { ProjectFlow } from "./components/ProjectFlow";
+import { projectGroups, projectKey } from "../lib/projects";
+const assignees = [members[0], members[2]];
 const names: Record<string, string> = {
   "eastsea.chae@gmail.com": "동수",
-  "unboundedvalue@gmail.com": "UV",
-  "echa.value@gmail.com": "Echa",
+  "unboundedvalue@gmail.com": "공용 계정",
+  "echa.value@gmail.com": "형원",
 };
 export default function Home() {
   const [entered, enter] = useState(false),
+    [flowOpen, setFlowOpen] = useState(false),
     [demo, setDemo] = useState(false),
     [email, setEmail] = useState(""),
     [approved, setApproved] = useState(false),
@@ -63,7 +65,7 @@ export default function Home() {
         data: { session },
       } = await client.auth.getSession();
       if (!session) return;
-      setEmail(session.user.email || "");
+      setEmail((session.user.email || "").toLowerCase());
       const { data, error } = await client
         .from("members")
         .select("approved,role")
@@ -172,6 +174,9 @@ export default function Home() {
     const t = {
       ...selected,
       title: selected.title.trim(),
+      company:
+        projectOptions.find((p) => p.key === projectKey(selected.company))
+          ?.name || selected.company.trim(),
       updated_at: at,
       initial: old?.initial || {
         importance: selected.importance,
@@ -240,7 +245,7 @@ export default function Home() {
       });
       const data = await r.json();
       if (!r.ok) throw Error(data.error);
-      select({ ...blank(), ...data, owner: email });
+      select({ ...blank(), ...data, owner: newOwner });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -258,12 +263,17 @@ export default function Home() {
       (!filter || t.owner === filter) &&
       `${t.title} ${t.company}`.toLowerCase().includes(query.toLowerCase()),
   );
+  const projects = projectGroups(tasks);
+  const projectOptions = projectGroups(tasks, true);
+  const newOwner = assignees.includes(email) ? email : assignees[0];
+  function openTask(t: Task) {
+    select(structuredClone(t));
+    setReason("");
+    setFlowOpen(false);
+  }
   if (!entered)
     return (
       <main className="landing">
-        <div className="brand">
-          <span className="brand-icon">o.</span> OREUM WORKSPACE
-        </div>
         <div className="landing-art">
           <Image
             src="/oreum-wave.png"
@@ -272,27 +282,17 @@ export default function Home() {
             height={193}
             priority
           />
-          <span>✦</span>
         </div>
-        <span className="eyebrow">조금 더 가볍게, 함께 앞으로</span>
         <h1>
           What to do
           <br />
           for <em>OREUM</em>
-          <span className="spark"> ✳</span>
         </h1>
-        <p>
-          해야 할 일은 한눈에.
-          <br />
-          함께 만든 흐름은 놓치지 않게.
-        </p>
         <button
           className="primary"
           onClick={async () => {
             if (!supabase) {
-              setError(
-                "실제 로그인은 Supabase 연결 후 가능합니다. 아래 체험으로 먼저 둘러보세요.",
-              );
+              startDemo();
               return;
             }
             const { error } = await supabase.auth.signInWithOAuth({
@@ -302,17 +302,13 @@ export default function Home() {
             if (error) setError(error.message);
           }}
         >
-          Google 계정으로 시작하기 <ArrowRight size={18} />
-        </button>
-        <button className="text-button" onClick={startDemo}>
-          데모 워크스페이스 둘러보기 →
+          시작하기 <ArrowRight size={18} />
         </button>
         {error && (
           <p role="alert" className="error">
             {error}
           </p>
         )}
-        <small>우리 팀의 오늘과 내일이 만나는 곳</small>
       </main>
     );
   if (!approved)
@@ -438,7 +434,6 @@ export default function Home() {
         </header>
         <section className="heading">
           <div>
-            <div className="eyebrow">OUR WORK, AT A GLANCE</div>
             <h1>
               {view === "active"
                 ? "업무 매트릭스"
@@ -447,69 +442,16 @@ export default function Home() {
                   : "잠시 내려놓은 일들"}
               <span className="sun">✳</span>
             </h1>
-            <p>
-              지금 중요한 일부터, 미래를 키우는 일까지. 함께 흐름을 살펴봐요.
-            </p>
           </div>
           <button
             className="primary"
             onClick={() => {
-              select({ ...blank(), owner: email });
+              select({ ...blank(), owner: newOwner });
               setReason("");
             }}
           >
             <Plus size={18} /> 업무 등록
           </button>
-        </section>
-        <section className="stats">
-          <div>
-            <span>함께 진행하는 업무</span>
-            <strong>
-              {
-                tasks.filter(
-                  (t) => !t.deleted && !["완료", "드롭"].includes(t.status),
-                ).length
-              }
-              <small>개</small>
-            </strong>
-          </div>
-          <div>
-            <span>
-              지금 집중할 일 <i className="dot peach" />
-            </span>
-            <strong>
-              {
-                tasks.filter(
-                  (t) =>
-                    !t.deleted &&
-                    quadrant(t) === "focus" &&
-                    !["완료", "드롭"].includes(t.status),
-                ).length
-              }
-              <small>개</small>
-            </strong>
-          </div>
-          <div>
-            <span>
-              회신을 기다리는 일 <i className="dot butter" />
-            </span>
-            <strong>
-              {
-                tasks.filter((t) => !t.deleted && t.status === "회신 대기")
-                  .length
-              }
-              <small>개</small>
-            </strong>
-          </div>
-          <div>
-            <span>
-              차곡차곡 마무리 <i className="dot mint" />
-            </span>
-            <strong>
-              {tasks.filter((t) => !t.deleted && t.status === "완료").length}
-              <small>개</small>
-            </strong>
-          </div>
         </section>
         <div className="toolbar">
           <div className="tabs">
@@ -527,6 +469,9 @@ export default function Home() {
             </button>
           </div>
           <div className="tools">
+            <button className="flow-toggle" onClick={() => setFlowOpen(true)}>
+              프로젝트 흐름
+            </button>
             <label className="search">
               <Search size={16} />
               <input
@@ -542,7 +487,7 @@ export default function Home() {
               onChange={(e) => setFilter(e.target.value)}
             >
               <option value="">모든 담당자</option>
-              {memberList.map((m) => (
+              {assignees.map((m) => (
                 <option key={m} value={m}>
                   {names[m]}
                 </option>
@@ -558,94 +503,7 @@ export default function Home() {
             </button>
           </div>
         )}
-        <div className="axis-top">
-          중요도 높음 <span>↑</span>
-        </div>
-        <section className="matrix">
-          {quadrants.map((q) => (
-            <article className={`quadrant ${q.color}`} key={q.id}>
-              <div className="quadrant-heading">
-                <div>
-                  <span className="business">{q.business}</span>
-                  <h2>
-                    {q.title}{" "}
-                    <span>
-                      {visible.filter((t) => quadrant(t) === q.id).length}
-                    </span>
-                  </h2>
-                </div>
-                <ArrowUpRight size={21} />
-              </div>
-              <p className="interpretation">{q.note}</p>
-              <div className="task-grid">
-                {visible
-                  .filter((t) => quadrant(t) === q.id)
-                  .map((t) => (
-                    <button
-                      key={t.id}
-                      className="task"
-                      onClick={() => {
-                        select(structuredClone(t));
-                        setReason("");
-                      }}
-                    >
-                      <div className="task-top">
-                        <span>{t.company || "내부 업무"}</span>
-                        {t.reminder && <Bell size={12} />}
-                        <span className="status">{t.status}</span>
-                      </div>
-                      <h3>{t.title}</h3>
-                      {changed(t) && (
-                        <span className="change-badge">
-                          ↗ 등록 후 기준 변경
-                        </span>
-                      )}
-                      {reviewNeeded(t) && (
-                        <span className="review-badge">
-                          14일 이상 정체 · 지속 여부 검토
-                        </span>
-                      )}
-                      <div className="card-scores">
-                        중요 {t.importance} · 긴급 {t.urgency}
-                      </div>
-                      <div className="task-bottom">
-                        <span className="mini-avatar">
-                          {names[t.owner]?.[0] || "O"}
-                        </span>
-                        <span>{names[t.owner] || t.owner}</span>
-                        <span
-                          className="difficulty"
-                          title={`난이도 ${t.difficulty}/5`}
-                        >
-                          {"●".repeat(t.difficulty)}
-                          {"○".repeat(5 - t.difficulty)}
-                        </span>
-                      </div>
-                      {t.due && <small className="due">마감 {t.due}</small>}
-                    </button>
-                  ))}
-              </div>
-              <button
-                className="add-task"
-                onClick={() =>
-                  select({
-                    ...blank(),
-                    owner: email,
-                    importance: q.id === "future" || q.id === "focus" ? 4 : 2,
-                    urgency: q.id === "focus" || q.id === "quick" ? 4 : 2,
-                  })
-                }
-              >
-                <Plus size={14} /> 이 영역에 업무 추가
-              </button>
-            </article>
-          ))}
-        </section>
-        <div className="axis-bottom">
-          <span>← 긴급도 낮음</span>
-          <span>중요도 낮음 ↓</span>
-          <span>긴급도 높음 →</span>
-        </div>
+        <MatrixBoard tasks={visible} onOpen={openTask} />
         <footer>
           <span>
             <i className="live-dot" />
@@ -653,9 +511,21 @@ export default function Home() {
               ? "예시 데이터 · 실제 팀 동기화 아님"
               : "팀 변경 사항 실시간 반영"}
           </span>
-          <span>● 난이도 &nbsp; · &nbsp; ↗ 최초 등록 대비 기준 변경</span>
+          <span>X 긴급도 · Y 중요도 · ↔ 최초 등록 대비 변경</span>
         </footer>
       </main>
+      {flowOpen && (
+        <ProjectFlow
+          tasks={tasks}
+          onClose={() => setFlowOpen(false)}
+          onOpen={openTask}
+          onAdd={(company) => {
+            setFlowOpen(false);
+            select({ ...blank(), owner: newOwner, company });
+            setReason("");
+          }}
+        />
+      )}
       {selected && (
         <div className="overlay" onClick={() => select(null)}>
           <section
@@ -731,11 +601,18 @@ export default function Home() {
                 <label>
                   고객사 / 프로젝트
                   <input
+                    list="project-options"
+                    maxLength={120}
                     value={selected.company}
                     onChange={(e) =>
                       select({ ...selected, company: e.target.value })
                     }
                   />
+                  <datalist id="project-options">
+                    {projectOptions.map((p) => (
+                      <option key={p.key} value={p.name} />
+                    ))}
+                  </datalist>
                 </label>
                 <label>
                   담당자
@@ -745,7 +622,12 @@ export default function Home() {
                       select({ ...selected, owner: e.target.value })
                     }
                   >
-                    {memberList.map((m) => (
+                    {!assignees.includes(selected.owner) && (
+                      <option value={selected.owner} disabled>
+                        기존 담당자 ({names[selected.owner] || selected.owner})
+                      </option>
+                    )}
+                    {assignees.map((m) => (
                       <option key={m} value={m}>
                         {names[m]}
                       </option>
@@ -808,7 +690,9 @@ export default function Home() {
                       }
                     />
                     <small>
-                      최초 {selected.initial[k]} → 현재 {selected[k]}
+                      {tasks.some((t) => t.id === selected.id)
+                        ? `최초 ${selected.initial[k]} → 현재 ${selected[k]}`
+                        : `등록 기준 ${selected[k]} / 5`}
                     </small>
                   </label>
                 ))}
@@ -933,6 +817,35 @@ export default function Home() {
                 </button>
               </div>
             </form>
+            {selected.company.trim() && (
+              <section className="related-flow">
+                <h3>{selected.company} · 연결된 업무</h3>
+                <ol>
+                  {projects
+                    .find((p) => p.key === projectKey(selected.company))
+                    ?.tasks.map((t) => (
+                      <li key={t.id}>
+                        <button
+                          className={t.id === selected.id ? "current" : ""}
+                          onClick={() => openTask(t)}
+                        >
+                          <strong>{t.title}</strong>
+                          <small>{t.status}</small>
+                        </button>
+                      </li>
+                    ))}
+                </ol>
+                <button
+                  className="flow-toggle"
+                  onClick={() => {
+                    setFlowOpen(true);
+                    select(null);
+                  }}
+                >
+                  프로젝트 전체 흐름 보기 →
+                </button>
+              </section>
+            )}
             <section className="history">
               <h3>
                 <HistoryIcon size={18} /> 차곡차곡 쌓인 히스토리

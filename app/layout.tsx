@@ -1,3 +1,4 @@
+import "pretendard/dist/web/variable/pretendardvariable.css";
 import "./globals.css";
 export const metadata = {
   title: "What to do for OREUM",
