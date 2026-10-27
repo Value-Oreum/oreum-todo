@@ -14,7 +14,8 @@
     "build:cloudflare": "node scripts/check-public-env.cjs && opennextjs-cloudflare build",
     "deploy:cloudflare": "opennextjs-cloudflare deploy",
     "preview:cloudflare": "wrangler dev --config wrangler.jsonc",
-    "app:worker:check": "XDG_CONFIG_HOME=/tmp/oreum-wrangler-config WRANGLER_SEND_METRICS=false wrangler deploy --config wrangler.jsonc --dry-run --outdir /tmp/oreum-app-worker"
+    "app:worker:check": "XDG_CONFIG_HOME=/tmp/oreum-wrangler-config WRANGLER_SEND_METRICS=false wrangler deploy --config wrangler.jsonc --dry-run --outdir /tmp/oreum-app-worker",
+    "test:mobile": "node scripts/mobile-smoke.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.0",

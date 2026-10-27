@@ -1,6 +1,6 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
-import { X, Bell } from "lucide-react";
+import { useState, useEffect, useRef, Fragment } from "react";
+import { Bell } from "lucide-react";
 import {
   Task,
   quadrants,
@@ -12,6 +12,8 @@ import {
   needsAttention,
 } from "../../lib/domain";
 import { axisPosition, matrixX } from "../../lib/projects";
+import { MOBILE_QUERY } from "../hooks/useMobile";
+import { Dialog } from "./Dialog";
 import { matrixLayout } from "../../lib/matrix-layout";
 export function MatrixBoard({
   tasks,
@@ -21,6 +23,7 @@ export function MatrixBoard({
   onOpen: (task: Task) => void;
 }) {
   const [cluster, setCluster] = useState<Task[] | null>(null),
+    [nearbySelection, setNearbySelection] = useState(false),
     [meaning, setMeaning] = useState<string | null>(null);
   const plotRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0, compact: false });
@@ -32,7 +35,7 @@ export function MatrixBoard({
       setSize({
         width: rect.width,
         height: rect.height,
-        compact: matchMedia("(max-width:760px)").matches,
+        compact: matchMedia(MOBILE_QUERY).matches,
       });
     };
     update();
@@ -41,6 +44,26 @@ export function MatrixBoard({
     return () => observer.disconnect();
   }, []);
   const layout = matrixLayout(tasks, size.width, size.height, size.compact);
+  function activatePoint(index: number) {
+    const item = layout[index];
+    const nearby = size.compact
+      ? layout
+          .filter(
+            (other) =>
+              Math.abs(other.point.x - item.point.x) < 44 &&
+              Math.abs(other.point.y - item.point.y) < 44,
+          )
+          .flatMap((other) => other.group)
+      : item.group;
+    if (nearby.length > item.group.length) {
+      setNearbySelection(true);
+      setCluster(nearby);
+    } else if (item.group.length > 1) {
+      setNearbySelection(false);
+      setCluster(item.group);
+    } else onOpen(item.group[0]);
+  }
+
   return (
     <>
       <section
@@ -50,9 +73,10 @@ export function MatrixBoard({
         {tasks.some((t) => !progressRank(t.progress)) && (
           <button
             className="unclassified-toggle"
-            onClick={() =>
+            onClick={() => (
+              setNearbySelection(false),
               setCluster(tasks.filter((t) => !progressRank(t.progress)))
-            }
+            )}
           >
             미분류 {tasks.filter((t) => !progressRank(t.progress)).length} ·
             설정하기
@@ -131,88 +155,102 @@ export function MatrixBoard({
                 />
               ))}
           </svg>
-          {layout.map(({ group, point, label }) => {
+          {layout.map(({ group, point, label }, index) => {
             const t = group[0];
             return (
-              <button
-                key={`${t.importance}:${t.progress || "unclassified"}`}
-                title={group.map((task) => task.title).join(" · ")}
-                className={`task-node ${label ? "" : "label-hidden"} ${quadrants.find((q) => q.id === quadrant(t))?.color || "unclassified"} ${group.some(needsAttention) ? "attention-node" : ""}`}
-                style={{
-                  left: `${matrixX(t)}%`,
-                  top: `${100 - axisPosition(t.importance)}%`,
-                }}
-                onClick={() =>
-                  group.length > 1 ? setCluster(group) : onOpen(t)
-                }
-                aria-label={
-                  group.length > 1
-                    ? `${t.title} 외 ${group.length - 1}개 업무, 중요도 ${t.importance}, 진행상황 ${t.progress || "미분류"}`
-                    : label
-                      ? undefined
+              <Fragment key={`${t.importance}:${t.progress || "unclassified"}`}>
+                <button
+                  data-node-key={t.id}
+                  title={group.map((task) => task.title).join(" · ")}
+                  className={`task-node ${label ? "" : "label-hidden"} ${quadrants.find((q) => q.id === quadrant(t))?.color || "unclassified"} ${group.some(needsAttention) ? "attention-node" : ""}`}
+                  style={{
+                    left: `${matrixX(t)}%`,
+                    top: `${100 - axisPosition(t.importance)}%`,
+                  }}
+                  onClick={() => activatePoint(index)}
+                  aria-label={
+                    group.length > 1
+                      ? `${t.title} 외 ${group.length - 1}개 업무, 중요도 ${t.importance}, 진행상황 ${t.progress || "미분류"}`
                       : t.title
-                }
-              >
-                <span className="node-dot" />
+                  }
+                >
+                  <span className="node-dot" />
+                  {group.length > 1 && (
+                    <span className="node-count">{group.length}</span>
+                  )}
+                  {group.some(changed) && (
+                    <span
+                      className="node-change"
+                      title="등록 후 분류 기준 변경"
+                      aria-label="기준 변경"
+                    >
+                      ↔
+                    </span>
+                  )}
+                  {group.some((t) => reviewNeeded(t)) && (
+                    <span
+                      className="node-review"
+                      title="14일 이상 정체 · 지속 여부 검토"
+                    >
+                      !
+                    </span>
+                  )}
+                </button>
                 {label && (
-                  <span
-                    className="node-card"
+                  <button
+                    data-node-key={t.id}
+                    className={`task-callout ${quadrants.find((q) => q.id === quadrant(t))?.color || "unclassified"} ${group.some(needsAttention) ? "attention-node" : ""}`}
                     style={{
-                      left: label.x - point.x + 9,
-                      top: label.y - point.y + 9,
-                      right: "auto",
-                      bottom: "auto",
+                      left: label.x,
+                      top: label.y,
                       width: label.width,
                       height: label.height,
                     }}
+                    onClick={() =>
+                      group.length > 1
+                        ? (setNearbySelection(false), setCluster(group))
+                        : onOpen(t)
+                    }
+                    title={group.map((task) => task.title).join(" · ")}
                   >
-                    <div className="node-title">
-                      <span
-                        className="processing-mark"
-                        title={t.processing_type || "처리 유형 미분류"}
-                        aria-label={t.processing_type || "처리 유형 미분류"}
-                      >
-                        {t.processing_type === "추적 관리"
-                          ? "↻"
-                          : t.processing_type === "바로 처리"
-                            ? "⚡"
-                            : "?"}
+                    <span
+                      className="node-card"
+                      style={{
+                        position: "static",
+                        width: "100%",
+                        height: "100%",
+                      }}
+                    >
+                      <div className="node-title">
+                        <span
+                          className="processing-mark"
+                          title={t.processing_type || "처리 유형 미분류"}
+                          aria-label={t.processing_type || "처리 유형 미분류"}
+                        >
+                          {t.processing_type === "추적 관리"
+                            ? "↻"
+                            : t.processing_type === "바로 처리"
+                              ? "⚡"
+                              : "?"}
+                        </span>
+                        <h3>{t.title}</h3>
+                      </div>
+                      <span className="node-meta">
+                        {group.length > 1
+                          ? `${group.length}개 업무 · 펼치기`
+                          : `${t.progress || "미분류"} · ${t.processing_type || "유형 미분류"}`}
+                        {t.reminder && <Bell size={12} />}{" "}
+                        {changed(t) && (
+                          <span title="최초 등록 후 기준 변경">↔</span>
+                        )}
+                        {reviewNeeded(t) && (
+                          <span title="지속 여부 검토">!</span>
+                        )}
                       </span>
-                      <h3>{t.title}</h3>
-                    </div>
-                    <span className="node-meta">
-                      {group.length > 1
-                        ? `${group.length}개 업무 · 펼치기`
-                        : `${t.progress || "미분류"} · ${t.processing_type || "유형 미분류"}`}
-                      {t.reminder && <Bell size={12} />}{" "}
-                      {changed(t) && (
-                        <span title="최초 등록 후 기준 변경">↔</span>
-                      )}
-                      {reviewNeeded(t) && <span title="지속 여부 검토">!</span>}
                     </span>
-                  </span>
+                  </button>
                 )}
-                {group.length > 1 && (
-                  <span className="node-count">{group.length}</span>
-                )}
-                {group.some(changed) && (
-                  <span
-                    className="node-change"
-                    title="등록 후 분류 기준 변경"
-                    aria-label="기준 변경"
-                  >
-                    ↔
-                  </span>
-                )}
-                {group.some((t) => reviewNeeded(t)) && (
-                  <span
-                    className="node-review"
-                    title="14일 이상 정체 · 지속 여부 검토"
-                  >
-                    !
-                  </span>
-                )}
-              </button>
+              </Fragment>
             );
           })}
           {!tasks.length && (
@@ -225,67 +263,49 @@ export function MatrixBoard({
         </div>
       </section>
       {cluster && (
-        <div className="overlay" onClick={() => setCluster(null)}>
-          <section
-            className="cluster-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label="같은 위치의 업무"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <Dialog
+          className="cluster-dialog"
+          label={nearbySelection ? "가까운 업무 선택" : "같은 위치의 업무"}
+          onClose={() => setCluster(null)}
+        >
+          <h2>
+            {nearbySelection ? "가까운 업무" : "같은 위치의 업무"}{" "}
+            {cluster.length}개
+          </h2>
+          <p>
+            {nearbySelection
+              ? "점들이 가까이 있어요. 열고 싶은 업무를 선택해주세요."
+              : `중요도 ${cluster[0].importance} · 진행상황 ${cluster[0].progress || "미분류"}`}
+          </p>
+          {cluster.map((t) => (
             <button
-              className="close"
-              aria-label="닫기"
-              onClick={() => setCluster(null)}
+              className="cluster-task"
+              key={t.id}
+              onClick={() => {
+                setCluster(null);
+                onOpen(t);
+              }}
             >
-              <X />
+              <strong>{t.title}</strong>
+              <span>
+                {t.company || "내부 업무"} · {t.progress || "미분류"} ·{" "}
+                {t.processing_type || "유형 미분류"} · {t.status}
+                {changed(t) && " · 기준 변경"}
+              </span>
             </button>
-            <h2>같은 위치의 업무 {cluster.length}개</h2>
-            <p>
-              중요도 {cluster[0].importance} · 진행상황{" "}
-              {cluster[0].progress || "미분류"}
-            </p>
-            {cluster.map((t) => (
-              <button
-                className="cluster-task"
-                key={t.id}
-                onClick={() => {
-                  setCluster(null);
-                  onOpen(t);
-                }}
-              >
-                <strong>{t.title}</strong>
-                <span>
-                  {t.company || "내부 업무"} · {t.progress || "미분류"} ·{" "}
-                  {t.processing_type || "유형 미분류"} · {t.status}
-                  {changed(t) && " · 기준 변경"}
-                </span>
-              </button>
-            ))}
-          </section>
-        </div>
+          ))}
+        </Dialog>
       )}
       {meaning && (
-        <div className="overlay" onClick={() => setMeaning(null)}>
-          <section
-            className="cluster-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label="사분면의 사업적 의미"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              className="close"
-              aria-label="닫기"
-              onClick={() => setMeaning(null)}
-            >
-              <X />
-            </button>
-            <h2>{quadrants.find((q) => q.id === meaning)?.title}</h2>
-            <h3>{quadrants.find((q) => q.id === meaning)?.business}</h3>
-            <p>{quadrants.find((q) => q.id === meaning)?.note}</p>
-          </section>
-        </div>
+        <Dialog
+          className="cluster-dialog"
+          label="사분면의 사업적 의미"
+          onClose={() => setMeaning(null)}
+        >
+          <h2>{quadrants.find((q) => q.id === meaning)?.title}</h2>
+          <h3>{quadrants.find((q) => q.id === meaning)?.business}</h3>
+          <p>{quadrants.find((q) => q.id === meaning)?.note}</p>
+        </Dialog>
       )}
     </>
   );

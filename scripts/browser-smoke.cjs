@@ -162,16 +162,23 @@ const base = process.env.TEST_BASE_URL || "http://127.0.0.1:3001";
   await critical.waitFor();
   if (
     !(await critical.evaluate((el) =>
-      getComputedStyle(el.querySelector(".node-dot")).animationName.includes(
-        "attention-ring",
-      ),
+      getComputedStyle(
+        document.querySelector(
+          `.task-node[data-node-key="${el.dataset.nodeKey}"] .node-dot`,
+        ),
+      ).animationName.includes("attention-ring"),
     ))
   )
     throw Error("Attention animation missing");
   await page.emulateMedia({ reducedMotion: "reduce" });
   if (
     (await critical.evaluate(
-      (el) => getComputedStyle(el.querySelector(".node-dot")).animationName,
+      (el) =>
+        getComputedStyle(
+          document.querySelector(
+            `.task-node[data-node-key="${el.dataset.nodeKey}"] .node-dot`,
+          ),
+        ).animationName,
     )) !== "none"
   )
     throw Error("Attention animation ignores reduced motion");

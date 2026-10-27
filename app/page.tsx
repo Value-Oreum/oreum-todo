@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import {
   Plus,
@@ -17,6 +17,9 @@ import {
   Users,
   Trash2,
   RotateCcw,
+  List,
+  LayoutDashboard,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   Task,
@@ -36,6 +39,8 @@ import {
   type History,
 } from "../lib/domain";
 import { supabase } from "../lib/supabase";
+import { Dialog } from "./components/Dialog";
+import { useMobile } from "./hooks/useMobile";
 import { MatrixBoard } from "./components/MatrixBoard";
 import { ProjectFlow } from "./components/ProjectFlow";
 import { projectGroups, projectKey } from "../lib/projects";
@@ -46,8 +51,13 @@ const names: Record<string, string> = {
   "echa.value@gmail.com": "형원",
 };
 export default function Home() {
+  const isMobile = useMobile();
   const [entered, enter] = useState(false),
     [flowOpen, setFlowOpen] = useState(false),
+    [mobileList, setMobileList] = useState(false),
+    [filtersOpen, setFiltersOpen] = useState(false),
+    [aiTextOpen, setAiTextOpen] = useState(false),
+    [aiText, setAiText] = useState(""),
     [focusOnly, setFocusOnly] = useState(false),
     [serverHistory, setServerHistory] = useState<History[] | null>(null),
     [historyNotice, setHistoryNotice] = useState(""),
@@ -68,6 +78,16 @@ export default function Home() {
     [mailJobs, setMailJobs] = useState<
       { id: string; state: string; created_at: string }[]
     >([]);
+  const aiRequest = useRef<AbortController | null>(null),
+    selectedId = useRef<string | undefined>(selected?.id);
+  selectedId.current = selected?.id;
+  function closeTask() {
+    aiRequest.current?.abort();
+    select(null);
+    setAiText("");
+    setAiTextOpen(false);
+  }
+  useEffect(() => () => aiRequest.current?.abort(), []);
   useEffect(() => {
     if (!supabase) return;
     const client = supabase;
@@ -259,8 +279,8 @@ export default function Home() {
       ],
     };
     if (await persist(t, selected.updated_at)) {
-      select(null);
-      setReason("");
+      select((current) => (current?.id === t.id ? null : current));
+      if (selectedId.current === t.id) setReason("");
     }
     setBusy(false);
   }
@@ -285,9 +305,12 @@ export default function Home() {
         ],
       })
     )
-      select(null);
+      select((current) => (current?.id === t.id ? null : current));
   }
   async function ai(file?: File, text?: string) {
+    const controller = new AbortController();
+    aiRequest.current?.abort();
+    aiRequest.current = controller;
     setBusy(true);
     setError("");
     try {
@@ -304,14 +327,22 @@ export default function Home() {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body,
+        signal: controller.signal,
       });
       const data = await r.json();
       if (!r.ok) throw Error(data.error);
-      select({ ...blank(), ...data, owner: newOwner });
+      if (!controller.signal.aborted) {
+        select({ ...blank(), ...data, owner: newOwner });
+        setAiText("");
+        setAiTextOpen(false);
+      }
     } catch (e) {
-      setError((e as Error).message);
+      if (!controller.signal.aborted) setError((e as Error).message);
     } finally {
-      setBusy(false);
+      if (aiRequest.current === controller) {
+        aiRequest.current = null;
+        setBusy(false);
+      }
     }
   }
   const visible = tasks.filter(
@@ -330,6 +361,8 @@ export default function Home() {
   const projectOptions = projectGroups(tasks, true);
   const newOwner = assignees.includes(email) ? email : assignees[0];
   function openTask(t: Task) {
+    setAiText("");
+    setAiTextOpen(false);
     select(structuredClone(t));
     setReason("");
     setFlowOpen(false);
@@ -444,6 +477,7 @@ export default function Home() {
         </div>
         <button
           className="profile"
+          aria-label="멤버 및 알림 설정"
           onClick={() => {
             setAdmin(true);
             if (!demo)
@@ -479,8 +513,12 @@ export default function Home() {
               {view === "active"
                 ? "업무 매트릭스"
                 : view === "archive"
-                  ? "잘 마무리한 일들"
-                  : "잠시 내려놓은 일들"}
+                  ? isMobile
+                    ? "완료 보관함"
+                    : "잘 마무리한 일들"
+                  : isMobile
+                    ? "휴지통"
+                    : "잠시 내려놓은 일들"}
             </h1>
           </div>
           <div className="heading-actions">
@@ -500,6 +538,8 @@ export default function Home() {
               className="primary"
               onClick={() => {
                 select({ ...blank(), owner: newOwner });
+                setAiText("");
+                setAiTextOpen(false);
                 setReason("");
               }}
             >
@@ -522,7 +562,23 @@ export default function Home() {
               내 업무
             </button>
           </div>
+          <button
+            className="mobile-view-toggle"
+            aria-pressed={mobileList}
+            onClick={() => setMobileList(!mobileList)}
+          >
+            {mobileList ? <LayoutDashboard size={17} /> : <List size={17} />}{" "}
+            {mobileList ? "매트릭스 보기" : "업무 목록"}
+          </button>
           <div className="tools">
+            <button
+              className="mobile-filter-toggle"
+              aria-label="검색 및 담당자 필터"
+              onClick={() => setFiltersOpen(true)}
+            >
+              <SlidersHorizontal size={16} /> 검색·필터
+              {(query || filter) && <span className="filter-dot" />}
+            </button>
             <button
               className="focus-toggle"
               aria-pressed={focusOnly}
@@ -538,6 +594,12 @@ export default function Home() {
               <Search size={16} />
               <input
                 aria-label="업무 검색"
+                type="search"
+                enterKeyHint="search"
+                autoComplete="off"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
                 placeholder="업무, 고객사 검색"
                 value={query}
                 onChange={(e) => search(e.target.value)}
@@ -565,7 +627,39 @@ export default function Home() {
             </button>
           </div>
         )}
-        <MatrixBoard tasks={visible} onOpen={openTask} />
+        <div
+          className={`board-content ${mobileList ? "show-mobile-list" : ""}`}
+        >
+          <MatrixBoard tasks={visible} onOpen={openTask} />
+          <section className="mobile-task-list" aria-label="업무 목록">
+            {visible.length ? (
+              visible.map((t) => (
+                <button
+                  key={t.id}
+                  className={`mobile-task ${needsAttention(t) ? "mobile-task-attention" : ""}`}
+                  onClick={() => openTask(t)}
+                >
+                  <strong>{t.title}</strong>
+                  <span>
+                    {t.company || "내부 업무"} · {names[t.owner] || t.owner}
+                  </span>
+                  <span className="mobile-task-badges">
+                    <b>{t.progress || "진행상황 미분류"}</b>
+                    <b>중요도 {t.importance}</b>
+                    <b>{t.processing_type || "유형 미분류"}</b>
+                    {needsAttention(t) && (
+                      <b className="attention-chip">집중 관리</b>
+                    )}
+                  </span>
+                </button>
+              ))
+            ) : (
+              <p className="mobile-list-empty">
+                표시할 업무가 없어요. 검색어나 필터를 확인해주세요.
+              </p>
+            )}
+          </section>
+        </div>
         <footer>
           <span>
             <i className="live-dot" />
@@ -576,6 +670,58 @@ export default function Home() {
           <span>⚡ 바로 처리 · ↻ 추적 관리 · 밀집된 업무는 점을 눌러 확인</span>
         </footer>
       </main>
+      {filtersOpen && (
+        <Dialog
+          className="cluster-dialog filter-dialog"
+          label="검색 및 담당자 필터"
+          onClose={() => setFiltersOpen(false)}
+        >
+          <label>
+            업무·고객사 검색
+            <input
+              aria-label="모바일 업무 검색"
+              type="search"
+              enterKeyHint="search"
+              autoComplete="off"
+              value={query}
+              onChange={(e) => search(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") setFiltersOpen(false);
+              }}
+              placeholder="업무명 또는 고객사"
+            />
+          </label>
+          <label>
+            담당자
+            <select
+              aria-label="모바일 담당자 필터"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            >
+              <option value="">모든 담당자</option>
+              {assignees.map((m) => (
+                <option key={m} value={m}>
+                  {names[m]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="filter-actions">
+            <button
+              onClick={() => {
+                search("");
+                setFilter("");
+                setFocusOnly(false);
+              }}
+            >
+              초기화
+            </button>
+            <button className="primary" onClick={() => setFiltersOpen(false)}>
+              업무 {visible.length}개 보기
+            </button>
+          </div>
+        </Dialog>
+      )}
       {flowOpen && (
         <ProjectFlow
           tasks={tasks}
@@ -584,39 +730,39 @@ export default function Home() {
           onAdd={(company) => {
             setFlowOpen(false);
             select({ ...blank(), owner: newOwner, company });
+            setAiText("");
+            setAiTextOpen(false);
             setReason("");
           }}
         />
       )}
       {selected && (
-        <div className="overlay" onClick={() => select(null)}>
-          <section
-            className="drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label="업무 상세"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="drawer-head">
-              <span>
-                {tasks.some((t) => t.id === selected.id)
-                  ? "업무 살펴보기"
-                  : "새로운 일의 시작"}
-              </span>
-              <button aria-label="닫기" onClick={() => select(null)}>
-                <X />
-              </button>
-            </div>
-            <form onSubmit={save}>
-              <h2>
-                {tasks.some((t) => t.id === selected.id)
-                  ? "업무 상세"
-                  : "가볍게 기록해요 ✦"}
-              </h2>
+        <Dialog
+          key={selected.id}
+          className="drawer"
+          label="업무 상세"
+          onClose={closeTask}
+          dismissOnBackdrop={false}
+        >
+          <form onSubmit={save}>
+            <details className="ai-assist" open={!isMobile}>
+              <summary>
+                <Sparkles size={16} /> 캡처·대화로 입력 도움받기
+              </summary>
               <div className="ai-box">
                 <Sparkles size={18} />
                 <span>{busy ? "처리 중…" : "대화 캡처로 빠르게 채우기"}</span>
-                <label className="upload">
+                <label
+                  className="upload"
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      event.currentTarget.querySelector("input")?.click();
+                    }
+                  }}
+                >
                   캡처 업로드
                   <input
                     type="file"
@@ -631,442 +777,446 @@ export default function Home() {
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => {
-                    const text = prompt(
-                      "대화 내용을 붙여넣으세요. 외부 AI로 전송됩니다.",
-                    );
-                    if (text) void ai(undefined, text);
-                  }}
+                  onClick={() => setAiTextOpen(!aiTextOpen)}
                 >
                   텍스트
                 </button>
               </div>
+              {aiTextOpen && (
+                <div className="ai-text-composer">
+                  <label>
+                    대화 내용
+                    <textarea
+                      aria-label="대화 내용"
+                      rows={5}
+                      maxLength={12000}
+                      value={aiText}
+                      onChange={(e) => setAiText(e.target.value)}
+                      placeholder="대화 내용을 여기에 붙여넣으세요"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={busy || !aiText.trim()}
+                    onClick={() => void ai(undefined, aiText.trim())}
+                  >
+                    {busy ? "분석 중…" : "분석해 채우기"}
+                  </button>
+                </div>
+              )}
               <small>
                 캡처·텍스트는 외부 AI로 전송됩니다. 민감정보를 확인하고
                 업로드하세요. AI 초안은 저장 전에 확인해주세요. 원본은 저장하지
                 않습니다.
               </small>
+            </details>
+            <label>
+              어떤 일인가요?
+              <input
+                autoFocus={!isMobile}
+                required
+                maxLength={160}
+                value={selected.title}
+                onChange={(e) => select({ ...selected, title: e.target.value })}
+                placeholder="예: 모노랩 계약 조건 회신하기"
+              />
+            </label>
+            <div className="form-row">
               <label>
-                어떤 일인가요?
+                고객사 / 프로젝트
                 <input
-                  autoFocus
-                  required
-                  maxLength={160}
-                  value={selected.title}
+                  list="project-options"
+                  maxLength={120}
+                  value={selected.company}
                   onChange={(e) =>
-                    select({ ...selected, title: e.target.value })
+                    select({ ...selected, company: e.target.value })
                   }
-                  placeholder="예: 모노랩 계약 조건 회신하기"
                 />
+                <datalist id="project-options">
+                  {projectOptions.map((p) => (
+                    <option key={p.key} value={p.name} />
+                  ))}
+                </datalist>
               </label>
-              <div className="form-row">
-                <label>
-                  고객사 / 프로젝트
-                  <input
-                    list="project-options"
-                    maxLength={120}
-                    value={selected.company}
-                    onChange={(e) =>
-                      select({ ...selected, company: e.target.value })
-                    }
-                  />
-                  <datalist id="project-options">
-                    {projectOptions.map((p) => (
-                      <option key={p.key} value={p.name} />
-                    ))}
-                  </datalist>
-                </label>
-                <label>
-                  담당자
-                  <select
-                    value={selected.owner}
-                    onChange={(e) =>
-                      select({ ...selected, owner: e.target.value })
-                    }
-                  >
-                    {!assignees.includes(selected.owner) && (
-                      <option value={selected.owner} disabled>
-                        기존 담당자 ({names[selected.owner] || selected.owner})
-                      </option>
-                    )}
-                    {assignees.map((m) => (
-                      <option key={m} value={m}>
-                        {names[m]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="form-row">
-                <label>
-                  업무 상태
-                  <select
-                    value={selected.status}
-                    onChange={(e) =>
-                      select({ ...selected, status: e.target.value })
-                    }
-                  >
-                    {[
-                      "예정",
-                      "진행 중",
-                      "회신 대기",
-                      "보류",
-                      "완료",
-                      "드롭",
-                    ].map((s) => (
-                      <option key={s}>{s}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  마감일
-                  <input
-                    type="date"
-                    value={selected.due}
-                    onChange={(e) =>
-                      select({ ...selected, due: e.target.value })
-                    }
-                  />
-                </label>
-              </div>
-              <div className="form-row">
-                <label>
-                  진행상황
-                  <select
-                    aria-label="진행상황"
-                    required
-                    value={selected.progress || ""}
-                    onChange={(e) =>
-                      select({
-                        ...selected,
-                        progress: e.target.value as Task["progress"],
-                      })
-                    }
-                  >
-                    <option value="" disabled>
-                      진행상황 선택
-                    </option>
-                    {progressStages.map((stage) => (
-                      <option key={stage.name} value={stage.name}>
-                        {stage.name}
-                      </option>
-                    ))}
-                  </select>
-                  <small>
-                    {progressStages.find(
-                      (stage) => stage.name === selected.progress,
-                    )?.description ||
-                      "기존 긴급도와 다른 기준입니다. 직접 선택해주세요."}
-                  </small>
-                </label>
-                <label>
-                  처리 유형
-                  <select
-                    aria-label="처리 유형"
-                    required
-                    value={selected.processing_type || ""}
-                    onChange={(e) =>
-                      select({
-                        ...selected,
-                        processing_type: e.target
-                          .value as Task["processing_type"],
-                      })
-                    }
-                  >
-                    <option value="" disabled>
-                      처리 유형 선택
-                    </option>
-                    {processingTypes.map((type) => (
-                      <option key={type}>{type}</option>
-                    ))}
-                  </select>
-                  <small>
-                    {selected.processing_type === "추적 관리"
-                      ? "회신·협의·경과를 확인하면서 처리"
-                      : "정보와 권한이 있어 한 번의 조치로 처리"}
-                  </small>
-                </label>
-              </div>
-              <div className="scores new-scores">
-                <label>
-                  중요도 <b>{selected.importance}</b>
-                  <input
-                    aria-label="중요도"
-                    type="range"
-                    min={1}
-                    max={5}
-                    value={selected.importance}
-                    onChange={(e) =>
-                      select({ ...selected, importance: +e.target.value })
-                    }
-                  />
-                  <small>
-                    1~2 일반 · 3~5 중요 / 최초 {selected.initial.importance}
-                  </small>
-                </label>
-                <label>
-                  처리 예상시간 (선택)
-                  <select
-                    value={selected.effort || "미정"}
-                    onChange={(e) =>
-                      select({ ...selected, effort: e.target.value })
-                    }
-                  >
-                    {effortOptions.map((value) => (
-                      <option key={value}>{value}</option>
-                    ))}
-                  </select>
-                  <small>처리 계획을 위한 참고 정보</small>
-                </label>
-              </div>
-              {needsAttention(selected) && (
-                <div className="attention-explainer" role="note">
-                  집중 관리 대상 · 중요도 3~5 + 지연·막힘·미해결. 필요한
-                  결정·지원·후속 대응을 챙겨주세요.
-                </div>
-              )}
-              {tasks.some((t) => t.id === selected.id) && (
-                <details className="legacy-scores">
-                  <summary>기존 분류 기록</summary>
-                  <p>
-                    최초 중요도 {selected.initial.importance} · 기존 긴급도{" "}
-                    {selected.urgency} · 기존 난이도 {selected.difficulty}
-                  </p>
-                  <small>
-                    긴급도·난이도 기록은 보존하며 새 좌표에는 사용하지 않습니다.
-                  </small>
-                </details>
-              )}
-              <div className="placement">
-                현재 위치 ·{" "}
-                {quadrants.find((q) => q.id === quadrant(selected))?.title ||
-                  "진행상황 미분류"}
-              </div>
-              {tasks.some((t) => t.id === selected.id) && (
-                <label>
-                  기준 변경 사유
-                  <input
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    placeholder="중요도·진행상황이 바뀌었다면 이유를 남겨주세요"
-                  />
-                </label>
-              )}
               <label>
-                내용과 다음 행동
-                <textarea
-                  rows={4}
-                  value={selected.description}
+                담당자
+                <select
+                  value={selected.owner}
                   onChange={(e) =>
-                    select({ ...selected, description: e.target.value })
+                    select({ ...selected, owner: e.target.value })
                   }
-                  placeholder="무엇을 했고, 다음에는 무엇을 챙기면 될까요?"
+                >
+                  {!assignees.includes(selected.owner) && (
+                    <option value={selected.owner} disabled>
+                      기존 담당자 ({names[selected.owner] || selected.owner})
+                    </option>
+                  )}
+                  {assignees.map((m) => (
+                    <option key={m} value={m}>
+                      {names[m]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="form-row">
+              <label>
+                업무 상태
+                <select
+                  value={selected.status}
+                  onChange={(e) =>
+                    select({ ...selected, status: e.target.value })
+                  }
+                >
+                  {["예정", "진행 중", "회신 대기", "보류", "완료", "드롭"].map(
+                    (s) => (
+                      <option key={s}>{s}</option>
+                    ),
+                  )}
+                </select>
+              </label>
+              <label>
+                마감일
+                <input
+                  type="date"
+                  value={selected.due}
+                  onChange={(e) => select({ ...selected, due: e.target.value })}
                 />
               </label>
-              <div className="reminder-box">
-                <label className="check-label">
-                  <input
-                    type="checkbox"
-                    checked={selected.reminder}
-                    onChange={(e) =>
-                      select({ ...selected, reminder: e.target.checked })
-                    }
-                  />
-                  <Bell size={16} /> 이메일로 챙겨주기
-                </label>
-                {(selected.reminder ||
-                  selected.processing_type === "추적 관리") && (
-                  <>
-                    <label>
-                      {selected.processing_type === "추적 관리"
-                        ? "다음 확인일 (기기 시간대)"
-                        : "알림 기준 시각 (기기 시간대)"}
-                      <input
-                        type="datetime-local"
-                        required
-                        value={
-                          selected.reminder_at
-                            ? new Date(
-                                new Date(selected.reminder_at).getTime() -
-                                  new Date().getTimezoneOffset() * 60000,
-                              )
-                                .toISOString()
-                                .slice(0, 16)
-                            : ""
-                        }
-                        onChange={(e) =>
-                          select({
-                            ...selected,
-                            reminder_at: e.target.value
-                              ? new Date(e.target.value).toISOString()
-                              : "",
-                          })
-                        }
-                      />
-                    </label>
-                    <small>
-                      {selected.reminder
-                        ? "메일은 매일 한국 시간 오전 9시에 확인해 하루 최대 5건 발송합니다. 초과분은 다음 실행으로 이월하며 예약 시각에 즉시 발송되지는 않습니다."
-                        : "다음 확인일은 저장됩니다. 이메일 알림을 켠 경우에만 메일을 발송합니다."}
-                    </small>
-                    <label>
-                      이메일 반복 주기
-                      <select
-                        disabled={!selected.reminder}
-                        value={selected.repeat_days}
-                        onChange={(e) =>
-                          select({ ...selected, repeat_days: +e.target.value })
-                        }
-                      >
-                        <option value={0}>한 번만</option>
-                        <option value={7}>매주</option>
-                        <option value={14}>2주마다</option>
-                        <option value={30}>30일마다</option>
-                      </select>
-                    </label>
-                    <small>
-                      {demo
-                        ? "체험 모드에서는 실제 메일이 발송되지 않습니다."
-                        : selected.reminder
-                          ? "담당자에게 발송 · 사용량 한도 초과 시 대기"
-                          : "이메일 알림 꺼짐 · 다음 확인일만 관리"}
-                    </small>
-                  </>
-                )}
-              </div>
-              {error && (
-                <p role="alert" className="error">
-                  {error}
-                </p>
-              )}
-              <div className="form-actions">
-                {tasks.some((t) => t.id === selected.id) && (
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => void remove(selected)}
-                  >
-                    {selected.deleted ? (
-                      <RotateCcw size={16} />
-                    ) : (
-                      <Trash2 size={16} />
-                    )}{" "}
-                    {selected.deleted ? "복원" : "휴지통"}
-                  </button>
-                )}
-                <button
-                  className="primary"
-                  disabled={busy || !selected.title.trim()}
+            </div>
+            <div className="form-row">
+              <label>
+                진행상황
+                <select
+                  aria-label="진행상황"
+                  required
+                  value={selected.progress || ""}
+                  onChange={(e) =>
+                    select({
+                      ...selected,
+                      progress: e.target.value as Task["progress"],
+                    })
+                  }
                 >
-                  <Check size={16} />
-                  {busy ? "저장 중…" : "업무 저장"}
-                </button>
-              </div>
-            </form>
-            {selected.company.trim() && (
-              <section className="related-flow">
-                <h3>{selected.company} · 연결된 업무</h3>
-                <ol>
-                  {projects
-                    .find((p) => p.key === projectKey(selected.company))
-                    ?.tasks.map((t) => (
-                      <li key={t.id}>
-                        <button
-                          className={t.id === selected.id ? "current" : ""}
-                          onClick={() => openTask(t)}
-                        >
-                          <strong>{t.title}</strong>
-                          <small>{t.status}</small>
-                        </button>
-                      </li>
-                    ))}
-                </ol>
-                <button
-                  className="flow-toggle"
-                  onClick={() => {
-                    setFlowOpen(true);
-                    select(null);
-                  }}
+                  <option value="" disabled>
+                    진행상황 선택
+                  </option>
+                  {progressStages.map((stage) => (
+                    <option key={stage.name} value={stage.name}>
+                      {stage.name}
+                    </option>
+                  ))}
+                </select>
+                <small>
+                  {progressStages.find(
+                    (stage) => stage.name === selected.progress,
+                  )?.description ||
+                    "기존 긴급도와 다른 기준입니다. 직접 선택해주세요."}
+                </small>
+              </label>
+              <label>
+                처리 유형
+                <select
+                  aria-label="처리 유형"
+                  required
+                  value={selected.processing_type || ""}
+                  onChange={(e) =>
+                    select({
+                      ...selected,
+                      processing_type: e.target
+                        .value as Task["processing_type"],
+                    })
+                  }
                 >
-                  프로젝트 전체 흐름 보기 →
-                </button>
-              </section>
+                  <option value="" disabled>
+                    처리 유형 선택
+                  </option>
+                  {processingTypes.map((type) => (
+                    <option key={type}>{type}</option>
+                  ))}
+                </select>
+                <small>
+                  {selected.processing_type === "추적 관리"
+                    ? "회신·협의·경과를 확인하면서 처리"
+                    : "정보와 권한이 있어 한 번의 조치로 처리"}
+                </small>
+              </label>
+            </div>
+            <div className="scores new-scores">
+              <label>
+                중요도 <b>{selected.importance}</b>
+                <input
+                  aria-label="중요도"
+                  type="range"
+                  min={1}
+                  max={5}
+                  value={selected.importance}
+                  onChange={(e) =>
+                    select({ ...selected, importance: +e.target.value })
+                  }
+                />
+                <small>
+                  1~2 일반 · 3~5 중요 / 최초 {selected.initial.importance}
+                </small>
+              </label>
+              <label>
+                처리 예상시간 (선택)
+                <select
+                  value={selected.effort || "미정"}
+                  onChange={(e) =>
+                    select({ ...selected, effort: e.target.value })
+                  }
+                >
+                  {effortOptions.map((value) => (
+                    <option key={value}>{value}</option>
+                  ))}
+                </select>
+                <small>처리 계획을 위한 참고 정보</small>
+              </label>
+            </div>
+            {needsAttention(selected) && (
+              <div className="attention-explainer" role="note">
+                집중 관리 대상 · 중요도 3~5 + 지연·막힘·미해결. 필요한
+                결정·지원·후속 대응을 챙겨주세요.
+              </div>
             )}
-            <section className="history">
-              <h3>
-                <HistoryIcon size={18} /> 차곡차곡 쌓인 히스토리
-              </h3>
-              {historyNotice && (
-                <p className="history-notice">{historyNotice}</p>
+            {tasks.some((t) => t.id === selected.id) && (
+              <details className="legacy-scores">
+                <summary>기존 분류 기록</summary>
+                <p>
+                  최초 중요도 {selected.initial.importance} · 기존 긴급도{" "}
+                  {selected.urgency} · 기존 난이도 {selected.difficulty}
+                </p>
+                <small>
+                  긴급도·난이도 기록은 보존하며 새 좌표에는 사용하지 않습니다.
+                </small>
+              </details>
+            )}
+            <div className="placement">
+              현재 위치 ·{" "}
+              {quadrants.find((q) => q.id === quadrant(selected))?.title ||
+                "진행상황 미분류"}
+            </div>
+            {tasks.some((t) => t.id === selected.id) && (
+              <label>
+                기준 변경 사유
+                <input
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="중요도·진행상황이 바뀌었다면 이유를 남겨주세요"
+                />
+              </label>
+            )}
+            <label>
+              내용과 다음 행동
+              <textarea
+                rows={4}
+                value={selected.description}
+                onChange={(e) =>
+                  select({ ...selected, description: e.target.value })
+                }
+                placeholder="무엇을 했고, 다음에는 무엇을 챙기면 될까요?"
+              />
+            </label>
+            <div className="reminder-box">
+              <label className="check-label">
+                <input
+                  type="checkbox"
+                  checked={selected.reminder}
+                  onChange={(e) =>
+                    select({ ...selected, reminder: e.target.checked })
+                  }
+                />
+                <Bell size={16} /> 이메일로 챙겨주기
+              </label>
+              {(selected.reminder ||
+                selected.processing_type === "추적 관리") && (
+                <>
+                  <label>
+                    {selected.processing_type === "추적 관리"
+                      ? "다음 확인일 (기기 시간대)"
+                      : "알림 기준 시각 (기기 시간대)"}
+                    <input
+                      type="datetime-local"
+                      required
+                      value={
+                        selected.reminder_at
+                          ? new Date(
+                              new Date(selected.reminder_at).getTime() -
+                                new Date().getTimezoneOffset() * 60000,
+                            )
+                              .toISOString()
+                              .slice(0, 16)
+                          : ""
+                      }
+                      onChange={(e) =>
+                        select({
+                          ...selected,
+                          reminder_at: e.target.value
+                            ? new Date(e.target.value).toISOString()
+                            : "",
+                        })
+                      }
+                    />
+                  </label>
+                  <small>
+                    {selected.reminder
+                      ? "메일은 매일 한국 시간 오전 9시에 확인해 하루 최대 5건 발송합니다. 초과분은 다음 실행으로 이월하며 예약 시각에 즉시 발송되지는 않습니다."
+                      : "다음 확인일은 저장됩니다. 이메일 알림을 켠 경우에만 메일을 발송합니다."}
+                  </small>
+                  <label>
+                    이메일 반복 주기
+                    <select
+                      disabled={!selected.reminder}
+                      value={selected.repeat_days}
+                      onChange={(e) =>
+                        select({ ...selected, repeat_days: +e.target.value })
+                      }
+                    >
+                      <option value={0}>한 번만</option>
+                      <option value={7}>매주</option>
+                      <option value={14}>2주마다</option>
+                      <option value={30}>30일마다</option>
+                    </select>
+                  </label>
+                  <small>
+                    {demo
+                      ? "체험 모드에서는 실제 메일이 발송되지 않습니다."
+                      : selected.reminder
+                        ? "담당자에게 발송 · 사용량 한도 초과 시 대기"
+                        : "이메일 알림 꺼짐 · 다음 확인일만 관리"}
+                  </small>
+                </>
               )}
-              {(serverHistory || selected.history).length === 0 ? (
-                <p>첫 기록이 곧 시작돼요.</p>
-              ) : (
-                [...(serverHistory || selected.history)]
-                  .reverse()
-                  .map((h, i) => (
-                    <div key={i}>
-                      <span className="history-dot" />
-                      <strong>{h.text}</strong>
-                      <small>
-                        {names[h.actor] || h.actor} ·{" "}
-                        {new Date(h.at).toLocaleString("ko-KR")}
-                      </small>
-                    </div>
-                  ))
+            </div>
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+            <div className="form-actions">
+              {tasks.some((t) => t.id === selected.id) && (
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => void remove(selected)}
+                >
+                  {selected.deleted ? (
+                    <RotateCcw size={16} />
+                  ) : (
+                    <Trash2 size={16} />
+                  )}{" "}
+                  {selected.deleted ? "복원" : "휴지통"}
+                </button>
               )}
+              <button
+                className="primary"
+                disabled={busy || !selected.title.trim()}
+              >
+                <Check size={16} />
+                {busy ? "저장 중…" : "업무 저장"}
+              </button>
+            </div>
+          </form>
+          {selected.company.trim() && (
+            <section className="related-flow">
+              <h3>{selected.company} · 연결된 업무</h3>
+              <ol>
+                {projects
+                  .find((p) => p.key === projectKey(selected.company))
+                  ?.tasks.map((t) => (
+                    <li key={t.id}>
+                      <button
+                        className={t.id === selected.id ? "current" : ""}
+                        onClick={() => openTask(t)}
+                      >
+                        <strong>{t.title}</strong>
+                        <small>{t.status}</small>
+                      </button>
+                    </li>
+                  ))}
+              </ol>
+              <button
+                className="flow-toggle"
+                onClick={() => {
+                  setFlowOpen(true);
+                  select(null);
+                }}
+              >
+                프로젝트 전체 흐름 보기 →
+              </button>
             </section>
+          )}
+          <section className="history">
+            <h3>
+              <HistoryIcon size={18} /> 차곡차곡 쌓인 히스토리
+            </h3>
+            {historyNotice && <p className="history-notice">{historyNotice}</p>}
+            {(serverHistory || selected.history).length === 0 ? (
+              <p>첫 기록이 곧 시작돼요.</p>
+            ) : (
+              [...(serverHistory || selected.history)].reverse().map((h, i) => (
+                <div key={i}>
+                  <span className="history-dot" />
+                  <strong>{h.text}</strong>
+                  <small>
+                    {names[h.actor] || h.actor} ·{" "}
+                    {new Date(h.at).toLocaleString("ko-KR")}
+                  </small>
+                </div>
+              ))
+            )}
           </section>
-        </div>
+        </Dialog>
       )}
       {admin && (
-        <div className="overlay" onClick={() => setAdmin(false)}>
-          <section className="admin" onClick={(e) => e.stopPropagation()}>
-            <button className="close" onClick={() => setAdmin(false)}>
-              <X />
-            </button>
-            <h2>함께하는 멤버</h2>
-            {memberList.map((m) => (
-              <p key={m}>
-                {m} {m === members[0] ? "· 관리자" : "· 멤버"}
+        <Dialog
+          className="admin"
+          label="멤버 및 알림 설정"
+          onClose={() => setAdmin(false)}
+        >
+          <h2>함께하는 멤버</h2>
+          {memberList.map((m) => (
+            <p key={m}>
+              {m} {m === members[0] ? "· 관리자" : "· 멤버"}
+            </p>
+          ))}
+          {email === members[0] &&
+            pending.map((m) => (
+              <p key={m.id}>
+                {m.email}
+                <button
+                  onClick={async () => {
+                    const r = await supabase
+                      ?.from("members")
+                      .update({ approved: true })
+                      .eq("id", m.id);
+                    if (r?.error) setError(r.error.message);
+                    else setPending((p) => p.filter((x) => x.id !== m.id));
+                  }}
+                >
+                  승인
+                </button>
               </p>
             ))}
-            {email === members[0] &&
-              pending.map((m) => (
-                <p key={m.id}>
-                  {m.email}
-                  <button
-                    onClick={async () => {
-                      const r = await supabase
-                        ?.from("members")
-                        .update({ approved: true })
-                        .eq("id", m.id);
-                      if (r?.error) setError(r.error.message);
-                      else setPending((p) => p.filter((x) => x.id !== m.id));
-                    }}
-                  >
-                    승인
-                  </button>
-                </p>
-              ))}
-            <h3>최근 알림 발송</h3>
-            {mailJobs.map((j) => (
-              <p key={j.id}>
-                {new Date(j.created_at).toLocaleString("ko-KR")} ·{" "}
-                {j.state === "sent"
-                  ? "발송 완료"
-                  : j.state === "failed"
-                    ? "발송 실패 · 확인 필요"
-                    : "처리 중 · 오래 지속되면 확인 필요"}
-              </p>
-            ))}
-            <small>
-              {demo
-                ? "데모에서는 승인 기능을 실행하지 않습니다."
-                : "신규 로그인 사용자는 관리자 승인 후 접근할 수 있습니다."}
-            </small>
-          </section>
-        </div>
+          <h3>최근 알림 발송</h3>
+          {mailJobs.map((j) => (
+            <p key={j.id}>
+              {new Date(j.created_at).toLocaleString("ko-KR")} ·{" "}
+              {j.state === "sent"
+                ? "발송 완료"
+                : j.state === "failed"
+                  ? "발송 실패 · 확인 필요"
+                  : "처리 중 · 오래 지속되면 확인 필요"}
+            </p>
+          ))}
+          <small>
+            {demo
+              ? "데모에서는 승인 기능을 실행하지 않습니다."
+              : "신규 로그인 사용자는 관리자 승인 후 접근할 수 있습니다."}
+          </small>
+        </Dialog>
       )}
     </div>
   );
