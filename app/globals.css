@@ -1423,3 +1423,195 @@ footer {
     max-width: calc(100% - 20px);
   }
 }
+
+/* Compact controls reserve the viewport for the matrix; sidebar stays intact. */
+.heading {
+  height: 48px;
+}
+.heading h1 {
+  font-size: 22px;
+}
+.heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.heading-actions .primary {
+  min-height: 34px;
+  padding: 7px 12px;
+  font-size: 14px;
+  border-radius: 9px;
+}
+.logout {
+  width: 32px;
+  height: 32px;
+}
+.toolbar {
+  min-height: 36px;
+}
+.tabs button {
+  font-size: 14px;
+  padding: 6px 2px;
+}
+.tools select,
+.search input {
+  font-size: 14px;
+  padding: 6px 8px;
+}
+.tools .flow-toggle {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 14px;
+}
+.tools svg {
+  width: 15px;
+  height: 15px;
+}
+.matrix-board {
+  margin-top: 20px;
+  margin-bottom: 4px;
+}
+footer {
+  height: 22px;
+}
+.plot {
+  inset: 52px 14px;
+}
+.y-label {
+  top: -73px;
+}
+.map-quadrant:nth-child(n + 3) .quadrant-caption {
+  bottom: 8px;
+}
+.quadrant-caption {
+  top: 8px;
+}
+.quadrant-caption > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 30px);
+}
+.quadrant-caption small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 28px);
+}
+.quadrant-caption b {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: auto;
+}
+.node-connectors {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 2;
+}
+.node-connectors line {
+  stroke: #809382;
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  opacity: 0.7;
+}
+.node-card {
+  padding: 7px 9px;
+}
+.node-card h3 {
+  font-size: 14px;
+  line-height: 1.3;
+  margin-bottom: 3px;
+}
+.node-meta {
+  line-height: 1.2;
+}
+.label-hidden .node-dot {
+  width: 14px;
+  height: 14px;
+}
+.empty-map {
+  bottom: 50%;
+  left: 14px;
+  transform: translateY(-35px);
+  pointer-events: none;
+}
+@media (max-width: 760px) {
+  .heading {
+    height: 45px;
+  }
+  .heading h1 {
+    font-size: 21px;
+  }
+  .heading-actions {
+    gap: 4px;
+  }
+  .heading-actions .demo {
+    display: none;
+  }
+  .heading-actions .primary {
+    min-height: 36px;
+    font-size: 14px;
+    padding: 7px 10px;
+  }
+  .logout {
+    width: 28px;
+    height: 32px;
+  }
+  .toolbar {
+    min-height: 72px;
+    gap: 2px;
+  }
+  .tabs button {
+    padding: 5px 2px;
+  }
+  .tools select,
+  .search input {
+    font-size: 14px;
+    padding: 6px 4px;
+  }
+  .tools .flow-toggle {
+    min-height: 32px;
+    padding: 6px;
+    font-size: 13px;
+  }
+  .matrix-board {
+    margin-top: 19px;
+  }
+  .plot {
+    inset: 52px 8px;
+  }
+  .y-label {
+    top: -73px;
+  }
+  .map-quadrant:nth-child(n + 3) .quadrant-caption {
+    bottom: 8px;
+  }
+  .quadrant-caption b {
+    top: 0;
+    bottom: auto;
+  }
+  .node-card {
+    padding: 7px 6px;
+  }
+  .node-card h3 {
+    line-height: 1.3;
+    margin: 0;
+  }
+  .main {
+    padding-bottom: 3px;
+  }
+  footer {
+    height: 20px;
+  }
+}
+
+@media (max-width: 760px) {
+  .node-card {
+    padding: 4px 6px;
+  }
+}

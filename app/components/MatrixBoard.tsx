@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Bell } from "lucide-react";
 import {
   Task,
@@ -8,7 +8,8 @@ import {
   changed,
   reviewNeeded,
 } from "../../lib/domain";
-import { scoreGroups, axisPosition } from "../../lib/projects";
+import { axisPosition } from "../../lib/projects";
+import { matrixLayout } from "../../lib/matrix-layout";
 export function MatrixBoard({
   tasks,
   onOpen,
@@ -18,6 +19,25 @@ export function MatrixBoard({
 }) {
   const [cluster, setCluster] = useState<Task[] | null>(null),
     [meaning, setMeaning] = useState<string | null>(null);
+  const plotRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0, compact: false });
+  useEffect(() => {
+    const el = plotRef.current;
+    if (!el) return;
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      setSize({
+        width: rect.width,
+        height: rect.height,
+        compact: matchMedia("(max-width:760px)").matches,
+      });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const layout = matrixLayout(tasks, size.width, size.height, size.compact);
   return (
     <>
       <section
@@ -45,7 +65,7 @@ export function MatrixBoard({
             </article>
           ))}
         </div>
-        <div className="plot" aria-label="업무 위치">
+        <div className="plot" ref={plotRef} aria-label="업무 위치">
           <div className="cross x-cross" />
           <div className="cross y-cross" />
           <span className="axis-label y-label">중요도 ↑</span>
@@ -69,13 +89,32 @@ export function MatrixBoard({
               {n}
             </span>
           ))}
-          {scoreGroups(tasks).map((group) => {
+          <svg className="node-connectors" aria-hidden="true">
+            {layout
+              .filter((item) => item.label)
+              .map(({ group, point, label }) => (
+                <line
+                  key={group[0].id}
+                  x1={point.x}
+                  y1={point.y}
+                  x2={Math.max(
+                    label!.x,
+                    Math.min(point.x, label!.x + label!.width),
+                  )}
+                  y2={Math.max(
+                    label!.y,
+                    Math.min(point.y, label!.y + label!.height),
+                  )}
+                />
+              ))}
+          </svg>
+          {layout.map(({ group, point, label }) => {
             const t = group[0];
             return (
               <button
                 key={`${t.importance}:${t.urgency}`}
                 title={group.map((task) => task.title).join(" · ")}
-                className={`task-node ${[1, 3].includes(t.urgency) ? "anchor-right" : "anchor-left"} ${[2, 5].includes(t.importance) ? "label-below" : t.importance === 1 || t.importance === 3 ? "label-above" : t.urgency % 2 ? "label-below" : "label-above"} ${quadrants.find((q) => q.id === quadrant(t))?.color}`}
+                className={`task-node ${label ? "" : "label-hidden"} ${quadrants.find((q) => q.id === quadrant(t))?.color}`}
                 style={{
                   left: `${axisPosition(t.urgency)}%`,
                   top: `${100 - axisPosition(t.importance)}%`,
@@ -86,23 +125,37 @@ export function MatrixBoard({
                 aria-label={
                   group.length > 1
                     ? `${t.title} 외 ${group.length - 1}개 업무, 중요도 ${t.importance}, 긴급도 ${t.urgency}`
-                    : undefined
+                    : label
+                      ? undefined
+                      : t.title
                 }
               >
                 <span className="node-dot" />
-                <span className="node-card">
-                  <h3>{t.title}</h3>
-                  <span className="node-meta">
-                    {group.length > 1
-                      ? `${group.length}개 업무 · 펼치기`
-                      : t.company || t.status}
-                    {t.reminder && <Bell size={12} />}{" "}
-                    {changed(t) && (
-                      <span title="최초 등록 후 기준 변경">↔</span>
-                    )}
-                    {reviewNeeded(t) && <span title="지속 여부 검토">!</span>}
+                {label && (
+                  <span
+                    className="node-card"
+                    style={{
+                      left: label.x - point.x + 9,
+                      top: label.y - point.y + 9,
+                      right: "auto",
+                      bottom: "auto",
+                      width: label.width,
+                      height: label.height,
+                    }}
+                  >
+                    <h3>{t.title}</h3>
+                    <span className="node-meta">
+                      {group.length > 1
+                        ? `${group.length}개 업무 · 펼치기`
+                        : t.company || t.status}
+                      {t.reminder && <Bell size={12} />}{" "}
+                      {changed(t) && (
+                        <span title="최초 등록 후 기준 변경">↔</span>
+                      )}
+                      {reviewNeeded(t) && <span title="지속 여부 검토">!</span>}
+                    </span>
                   </span>
-                </span>
+                )}
                 {group.length > 1 && (
                   <span className="node-count">{group.length}</span>
                 )}
@@ -133,9 +186,6 @@ export function MatrixBoard({
               상단의 업무 등록으로 시작하세요.
             </div>
           )}
-        </div>
-        <div className="map-key">
-          1–2 낮음 · 3–5 높음 <span>난이도는 상세에서 확인</span>
         </div>
       </section>
       {cluster && (

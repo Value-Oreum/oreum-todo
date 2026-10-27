@@ -54,11 +54,31 @@ const base = process.env.TEST_BASE_URL || "http://127.0.0.1:3001";
       !bounds ||
       bounds.y < 0 ||
       bounds.y + bounds.height > size.height ||
-      bounds.height < 200
+      bounds.height < Math.min(350, size.height * 0.5)
     )
       throw Error(
         `Matrix not fully visible: ${JSON.stringify(size)} ${JSON.stringify(bounds)}`,
       );
+    await page.waitForTimeout(60);
+    const overlap = await page.locator(".matrix-board").evaluate((board) => {
+      const rects = [
+        ...board.querySelectorAll(".node-card,.quadrant-caption"),
+      ].map((el) => ({ type: el.className, r: el.getBoundingClientRect() }));
+      for (let i = 0; i < rects.length; i++)
+        for (let j = i + 1; j < rects.length; j++) {
+          const a = rects[i].r,
+            b = rects[j].r;
+          if (
+            a.left < b.right &&
+            a.right > b.left &&
+            a.top < b.bottom &&
+            a.bottom > b.top
+          )
+            return `${rects[i].type} overlaps ${rects[j].type}`;
+        }
+      return null;
+    });
+    if (overlap) throw Error(`${overlap} at ${JSON.stringify(size)}`);
     if (
       await page.evaluate(
         () =>
@@ -224,13 +244,64 @@ const base = process.env.TEST_BASE_URL || "http://127.0.0.1:3001";
   await page
     .getByRole("heading", { name: "테스트 고객사 회신", exact: true })
     .waitFor();
+  await page.evaluate(() => {
+    const template = JSON.parse(localStorage.getItem("oreum-demo"))[0];
+    const dense = Array.from({ length: 25 }, (_, i) => ({
+      ...template,
+      id: crypto.randomUUID(),
+      title: `밀집 검증 ${i}`,
+      importance: Math.floor(i / 5) + 1,
+      urgency: (i % 5) + 1,
+      deleted: false,
+      status: "예정",
+    }));
+    localStorage.setItem("oreum-demo", JSON.stringify(dense));
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "시작하기", exact: true }).click();
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.waitForFunction(
+    () => document.querySelectorAll(".task-node").length === 25,
+  );
+  await page.waitForTimeout(80);
+  const denseOverlap = await page.locator(".matrix-board").evaluate((board) => {
+    const r = [...board.querySelectorAll(".node-card,.quadrant-caption")].map(
+      (el) => el.getBoundingClientRect(),
+    );
+    return r.some((a, i) =>
+      r
+        .slice(i + 1)
+        .some(
+          (b) =>
+            a.left < b.right &&
+            a.right > b.left &&
+            a.top < b.bottom &&
+            a.bottom > b.top,
+        ),
+    );
+  });
+  if (denseOverlap) throw Error("Dense labels overlap");
+  if (!(await page.locator(".label-hidden").count()))
+    throw Error("Dense map did not exercise point-only fallback");
+  await page.screenshot({
+    path: "/tmp/oreum-matrix-dense.png",
+    fullPage: true,
+  });
+  await page.locator(".label-hidden").first().click();
+  if (
+    !(
+      await page.getByRole("textbox", { name: "어떤 일인가요?" }).inputValue()
+    ).startsWith("밀집 검증")
+  )
+    throw Error("Hidden label point was not accessible");
+  await page.getByRole("button", { name: "닫기", exact: true }).click();
   const cron = await page.request.get(`${base}/api/reminders`);
   if (cron.status() !== 401) throw Error("Cron was not protected");
   const ai = await page.request.post(`${base}/api/ai`);
   if (ai.status() !== 403) throw Error("AI was not protected");
   if (errors.length) throw Error(errors.join("\n"));
   console.log(
-    "PASS: demo entry, create, score-change reason guard, history, persistence, six viewport fits, Pretendard, assignees, project suggestions and linked nodes, score cluster selection, trash/restore, protected APIs; no browser errors",
+    "PASS: demo entry, create, score-change reason guard, history, persistence, six viewport fits, Pretendard, assignees, project suggestions and linked nodes, score cluster selection, trash/restore, dense map overlap and fallback access, protected APIs; no browser errors",
   );
   await browser.close();
 })().catch((e) => {

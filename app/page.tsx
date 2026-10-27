@@ -407,31 +407,6 @@ export default function Home() {
         </button>
       </aside>
       <main className="main">
-        <header>
-          <span>
-            워크스페이스 <ChevronRight size={14} />{" "}
-            {view === "active"
-              ? "업무 매트릭스"
-              : view === "archive"
-                ? "완료 보관함"
-                : "휴지통"}
-          </span>
-          <div>
-            {demo && (
-              <span className="demo">체험 모드 · 이 브라우저에만 저장</span>
-            )}
-            <button
-              aria-label="로그아웃"
-              onClick={() => {
-                if (!demo) void supabase?.auth.signOut();
-                enter(false);
-                setDemo(false);
-              }}
-            >
-              <LogOut size={17} />
-            </button>
-          </div>
-        </header>
         <section className="heading">
           <div>
             <h1>
@@ -440,18 +415,31 @@ export default function Home() {
                 : view === "archive"
                   ? "잘 마무리한 일들"
                   : "잠시 내려놓은 일들"}
-              <span className="sun">✳</span>
             </h1>
           </div>
-          <button
-            className="primary"
-            onClick={() => {
-              select({ ...blank(), owner: newOwner });
-              setReason("");
-            }}
-          >
-            <Plus size={18} /> 업무 등록
-          </button>
+          <div className="heading-actions">
+            {demo && <span className="demo">체험 모드</span>}
+            <button
+              className="logout"
+              aria-label="로그아웃"
+              onClick={() => {
+                if (!demo) void supabase?.auth.signOut();
+                enter(false);
+                setDemo(false);
+              }}
+            >
+              <LogOut size={16} />
+            </button>
+            <button
+              className="primary"
+              onClick={() => {
+                select({ ...blank(), owner: newOwner });
+                setReason("");
+              }}
+            >
+              <Plus size={16} /> 업무 등록
+            </button>
+          </div>
         </section>
         <div className="toolbar">
           <div className="tabs">
@@ -511,7 +499,7 @@ export default function Home() {
               ? "예시 데이터 · 실제 팀 동기화 아님"
               : "팀 변경 사항 실시간 반영"}
           </span>
-          <span>X 긴급도 · Y 중요도 · ↔ 최초 등록 대비 변경</span>
+          <span>1–2 낮음 · 3–5 높음 · 밀집된 업무는 점을 눌러 확인</span>
         </footer>
       </main>
       {flowOpen && (
