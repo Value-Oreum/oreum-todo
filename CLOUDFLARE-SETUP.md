@@ -74,3 +74,7 @@ Google Cloud OAuth 앱의 Authorized redirect URIs에는 Supabase Google provide
 API 키를 채팅·GitHub 파일·빌드 명령에 넣지 마세요. 앱 서버용 Secret과 알림 Worker용 Secret은 서로 별도로 등록합니다. DNS 인증 완료만으로 실제 발송 검증이 끝난 것은 아닙니다.
 
 URL 빌드 변수에는 `https://cvmmxhnoyhnybiniiedc.supabase.co` 주소 문자열만 입력하세요. Markdown 링크의 대괄호·소괄호, 따옴표, 백틱이나 변수 이름을 값에 포함하면 안 됩니다.
+
+## 확정된 프로덕션 주소
+
+`https://oreum-todo.unboundedvalue.workers.dev`를 Supabase Site URL과 Redirect URLs에 등록합니다. 앱의 NEXT_PUBLIC_APP_URL 및 알림 Worker의 APP_URL은 코드 설정에 반영했습니다. Preview 와일드카드 주소를 프로덕션 Site URL로 쓰지 않습니다. 이 환경의 네트워크 프록시가 프로덕션 URL 접근을 차단해 직접 응답은 검증하지 못했습니다. 브라우저에서 실제 로그인과 별도 계정 간 동기화를 확인해야 합니다.

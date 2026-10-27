@@ -3,22 +3,26 @@
   "name": "oreum-todo",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-10-27",
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
   "workers_dev": true,
   "assets": {
     "directory": ".open-next/assets",
-    "binding": "ASSETS",
+    "binding": "ASSETS"
   },
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "oreum-todo",
-    },
+      "service": "oreum-todo"
+    }
   ],
   "observability": {
-    "enabled": true,
+    "enabled": true
   },
   "vars": {
     "NEXT_PUBLIC_SUPABASE_URL": "https://cvmmxhnoyhnybiniiedc.supabase.co",
-  },
+    "NEXT_PUBLIC_APP_URL": "https://oreum-todo.unboundedvalue.workers.dev"
+  }
 }
