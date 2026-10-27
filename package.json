@@ -1,0 +1,37 @@
+{
+  "name": "oreum-todo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test lib/*.test.ts",
+    "test:db": "node scripts/db-smoke.cjs",
+    "test:browser": "node scripts/browser-smoke.cjs",
+    "worker:check": "XDG_CONFIG_HOME=/tmp/oreum-wrangler-config WRANGLER_SEND_METRICS=false wrangler deploy --config cloudflare/wrangler.jsonc --dry-run --outdir /tmp/oreum-reminder-worker",
+    "build:cloudflare": "node scripts/check-public-env.cjs && opennextjs-cloudflare build",
+    "deploy:cloudflare": "opennextjs-cloudflare deploy",
+    "preview:cloudflare": "wrangler dev --config wrangler.jsonc",
+    "app:worker:check": "XDG_CONFIG_HOME=/tmp/oreum-wrangler-config WRANGLER_SEND_METRICS=false wrangler deploy --config wrangler.jsonc --dry-run --outdir /tmp/oreum-app-worker"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.99.0",
+    "lucide-react": "^0.577.0",
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.12",
+    "@opennextjs/cloudflare": "^1.20.13",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "playwright": "^1.64.1",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.153.0"
+  },
+  "type": "module"
+}
