@@ -30,7 +30,7 @@ test("project suggestions deduplicate whitespace, case and unicode; archive stay
 test("same score tasks form clusters; all scores stay in correct side of centered 2.5 axes", () => {
   const a = blank(),
     b = { ...blank() },
-    c = { ...blank(), urgency: 5 };
+    c = { ...blank(), progress: "미해결" as const };
   assert.deepEqual(
     scoreGroups([a, b, c]).map((g) => g.length),
     [2, 1],

@@ -123,11 +123,13 @@ const base = process.env.TEST_BASE_URL || "http://127.0.0.1:3001";
       }),
     })
     .click();
-  await page.getByRole("slider", { name: /긴급도/ }).fill("5");
+  await page
+    .getByRole("combobox", { name: "진행상황", exact: true })
+    .selectOption("지연");
   await page.getByRole("button", { name: "업무 저장", exact: true }).click();
   await page
     .getByRole("alert")
-    .filter({ hasText: "우선순위가 바뀐 이유" })
+    .filter({ hasText: "중요도나 진행상황이 바뀐 이유" })
     .first()
     .waitFor();
   await page
@@ -144,7 +146,52 @@ const base = process.env.TEST_BASE_URL || "http://127.0.0.1:3001";
     })
     .click();
   await page.getByText(/고객 요청으로 오늘 회신 필요/).waitFor();
+  await page
+    .getByRole("combobox", { name: "처리 유형", exact: true })
+    .selectOption("추적 관리");
+  await page
+    .getByLabel("다음 확인일 (기기 시간대)", { exact: true })
+    .fill("2099-11-02T09:00");
+  await page.getByRole("button", { name: "업무 저장", exact: true }).click();
+  const critical = page.locator(".attention-node").filter({
+    has: page.getByRole("heading", {
+      name: "테스트 고객사 회신",
+      exact: true,
+    }),
+  });
+  await critical.waitFor();
+  if (
+    !(await critical.evaluate((el) =>
+      getComputedStyle(el.querySelector(".node-dot")).animationName.includes(
+        "attention-ring",
+      ),
+    ))
+  )
+    throw Error("Attention animation missing");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  if (
+    (await critical.evaluate(
+      (el) => getComputedStyle(el.querySelector(".node-dot")).animationName,
+    )) !== "none"
+  )
+    throw Error("Attention animation ignores reduced motion");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await critical.click();
+  await page.getByText(/바로 처리→추적 관리/).waitFor();
+  if (
+    await page.getByRole("checkbox", { name: "이메일로 챙겨주기" }).isChecked()
+  )
+    throw Error("Tracking forced email on");
+
   await page.getByRole("button", { name: "닫기", exact: true }).click();
+  const focusButton = page.getByRole("button", { name: /^집중 관리/ });
+  await focusButton.click();
+  if (
+    !(await page.locator(".task-node").count()) ||
+    (await page.locator(".task-node:not(.attention-node)").count())
+  )
+    throw Error("Focus filter includes noncritical tasks");
+  await focusButton.click();
   await page.reload();
   await page.getByRole("button", { name: "시작하기", exact: true }).click();
   await page
@@ -251,7 +298,9 @@ const base = process.env.TEST_BASE_URL || "http://127.0.0.1:3001";
       id: crypto.randomUUID(),
       title: `밀집 검증 ${i}`,
       importance: Math.floor(i / 5) + 1,
-      urgency: (i % 5) + 1,
+      urgency: 2,
+      progress: ["원활", "유지", "지연", "막힘", "미해결"][i % 5],
+      initial_progress: ["원활", "유지", "지연", "막힘", "미해결"][i % 5],
       deleted: false,
       status: "예정",
     }));
@@ -295,13 +344,48 @@ const base = process.env.TEST_BASE_URL || "http://127.0.0.1:3001";
   )
     throw Error("Hidden label point was not accessible");
   await page.getByRole("button", { name: "닫기", exact: true }).click();
+  await page.evaluate(() => {
+    const item = JSON.parse(localStorage.getItem("oreum-demo"))[0];
+    delete item.progress;
+    delete item.initial_progress;
+    delete item.processing_type;
+    item.id = crypto.randomUUID();
+    item.title = "기존 업무 분류 확인";
+    item.urgency = 5;
+    localStorage.setItem("oreum-demo", JSON.stringify([item]));
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "시작하기", exact: true }).click();
+  await page.getByRole("button", { name: /미분류 1 · 설정하기/ }).click();
+  await page
+    .getByRole("dialog", { name: "같은 위치의 업무" })
+    .getByRole("button", { name: /기존 업무 분류 확인/ })
+    .click();
+  if (
+    (await page
+      .getByRole("combobox", { name: "진행상황", exact: true })
+      .inputValue()) !== ""
+  )
+    throw Error("Legacy urgency silently converted");
+  await page
+    .getByRole("combobox", { name: "진행상황", exact: true })
+    .selectOption("유지");
+  await page
+    .getByRole("combobox", { name: "처리 유형", exact: true })
+    .selectOption("바로 처리");
+  await page.getByRole("button", { name: "업무 저장", exact: true }).click();
+  const stored = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("oreum-demo"))[0],
+  );
+  if (stored.progress !== "유지" || stored.urgency !== 5)
+    throw Error("Legacy classification lost old data");
   const cron = await page.request.get(`${base}/api/reminders`);
   if (cron.status() !== 401) throw Error("Cron was not protected");
   const ai = await page.request.post(`${base}/api/ai`);
   if (ai.status() !== 403) throw Error("AI was not protected");
   if (errors.length) throw Error(errors.join("\n"));
   console.log(
-    "PASS: demo entry, create, score-change reason guard, history, persistence, six viewport fits, Pretendard, assignees, project suggestions and linked nodes, score cluster selection, trash/restore, dense map overlap and fallback access, protected APIs; no browser errors",
+    "PASS: demo entry, create, score-change reason guard, history, persistence, six viewport fits, Pretendard, assignees, project suggestions and linked nodes, score cluster selection, trash/restore, dense map overlap and fallback access, progress axes, attention rule/animation, tracking date/history, legacy preservation, protected APIs; no browser errors",
   );
   await browser.close();
 })().catch((e) => {

@@ -34,6 +34,9 @@ const assert = require("node:assert/strict");
   const t = {
     id: "10000000-0000-4000-8000-000000000001",
     title: "DB smoke",
+    progress: "원활",
+    initial_progress: "원활",
+    processing_type: "추적 관리",
     company: "Test",
     description: "DB test",
     owner: "eastsea.chae@gmail.com",
@@ -81,6 +84,38 @@ const assert = require("node:assert/strict");
     "sent",
   );
   assert.equal((await db.query("select * from task_events")).rows.length, 2);
+  const updated = (await db.query("select data from tasks where id=$1", [t.id]))
+    .rows[0].data;
+  const edited = {
+    ...updated,
+    progress: "막힘",
+    processing_type: "바로 처리",
+    change_reason: "결정 필요",
+    history: [{ at: new Date().toISOString(), actor: "forged", text: "fake" }],
+  };
+  await db.exec("set role authenticated");
+  await db.query(
+    "update tasks set data=$1,updated_at=clock_timestamp()+interval '1 second' where id=$2",
+    [JSON.stringify(edited), t.id],
+  );
+  const events = (
+    await db.query(
+      "select at,old_data,new_data from task_events where task_id=$1 order by id desc limit 1",
+      [t.id],
+    )
+  ).rows;
+  assert.equal(events[0].old_data.progress, "원활");
+  assert.equal(events[0].new_data.progress, "막힘");
+  assert.equal(
+    events[0].new_data.history.at(-1).actor,
+    "eastsea.chae@gmail.com",
+  );
+  const { eventHistory } = await import("../lib/domain.ts");
+  const detail = eventHistory(events)[0];
+  assert.match(detail.text, /원활→막힘/);
+  assert.match(detail.text, /추적 관리→바로 처리/);
+  assert.match(detail.text, /결정 필요/);
+  await db.exec("reset role");
   for (let i = 0; i < 20; i++)
     assert.equal(
       (
@@ -99,7 +134,7 @@ const assert = require("node:assert/strict");
     false,
   );
   console.log(
-    "PASS: initial membership, outsider RLS rejection, task creation, server history/initial values, reminder deduplication and completion, immutable event archive, AI daily cap",
+    "PASS: initial membership, outsider RLS rejection, task creation, server history/initial values, reminder deduplication and completion, immutable event archive with new progress/handling changes on legacy schema, AI daily cap",
   );
   await db.close();
 })().catch((e) => {

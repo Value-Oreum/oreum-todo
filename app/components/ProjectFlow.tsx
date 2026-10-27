@@ -57,7 +57,8 @@ export function ProjectFlow({
                       <span>
                         <strong>{t.title}</strong>
                         <small>
-                          {t.status} ·{" "}
+                          {t.progress || "진행상황 미분류"} ·{" "}
+                          {t.processing_type || "유형 미분류"} · {t.status} ·{" "}
                           {quadrants.find((q) => q.id === quadrant(t))?.title}
                         </small>
                       </span>

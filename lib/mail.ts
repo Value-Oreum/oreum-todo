@@ -33,7 +33,7 @@ export async function dispatchReminders(
           from: config.from,
           to: [t.owner],
           subject: `[오름] ${t.title.slice(0, 100)} · 챙길 시간이에요`,
-          text: `${t.title}\n고객사: ${t.company || "내부 업무"}\n상태: ${t.status}\n${t.description.slice(0, 1500)}\n\n업무 확인: ${config.appUrl}\n알림은 업무 상세에서 끌 수 있습니다.`,
+          text: `${t.title}\n고객사: ${t.company || "내부 업무"}\n진행상황: ${t.progress || "미분류"}\n처리 유형: ${t.processing_type || "미분류"}\n업무 상태: ${t.status}\n${t.description.slice(0, 1500)}\n\n업무 확인: ${config.appUrl}\n알림은 업무 상세에서 끌 수 있습니다.`,
         }),
         signal: AbortSignal.timeout(8000),
       });

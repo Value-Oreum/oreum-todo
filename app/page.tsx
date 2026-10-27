@@ -26,6 +26,14 @@ import {
   quadrants,
   quadrant,
   members,
+  progressStages,
+  progressRank,
+  processingTypes,
+  effortOptions,
+  needsAttention,
+  describeChanges,
+  eventHistory,
+  type History,
 } from "../lib/domain";
 import { supabase } from "../lib/supabase";
 import { MatrixBoard } from "./components/MatrixBoard";
@@ -40,6 +48,9 @@ const names: Record<string, string> = {
 export default function Home() {
   const [entered, enter] = useState(false),
     [flowOpen, setFlowOpen] = useState(false),
+    [focusOnly, setFocusOnly] = useState(false),
+    [serverHistory, setServerHistory] = useState<History[] | null>(null),
+    [historyNotice, setHistoryNotice] = useState(""),
     [demo, setDemo] = useState(false),
     [email, setEmail] = useState(""),
     [approved, setApproved] = useState(false),
@@ -105,6 +116,42 @@ export default function Home() {
       void client.removeChannel(ch);
     };
   }, []);
+  useEffect(() => {
+    setServerHistory(null);
+    setHistoryNotice("");
+    if (
+      demo ||
+      !supabase ||
+      !selected ||
+      !tasks.some((t) => t.id === selected.id)
+    )
+      return;
+    let active = true;
+    void supabase
+      .from("task_events")
+      .select("at,old_data,new_data")
+      .eq("task_id", selected.id)
+      .order("id", { ascending: false })
+      .limit(500)
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) {
+          setHistoryNotice(
+            "상세 변경 이력을 불러오지 못해 저장된 기록을 표시합니다.",
+          );
+          return;
+        }
+        const current = eventHistory((data || []).reverse());
+        const earliest = current.length ? Date.parse(current[0].at) : Infinity;
+        setServerHistory([
+          ...selected.history.filter((h) => Date.parse(h.at) < earliest),
+          ...current,
+        ]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [demo, selected?.id, tasks]);
   function startDemo() {
     setDemo(true);
     setApproved(true);
@@ -160,13 +207,27 @@ export default function Home() {
     e.preventDefault();
     if (!selected || busy) return;
     const old = tasks.find((t) => t.id === selected.id);
-    const scoreChange =
-      old &&
-      (["importance", "urgency", "difficulty"] as (keyof Scores)[]).filter(
-        (k) => old[k] !== selected[k],
-      );
-    if (scoreChange?.length && !reason.trim()) {
-      setError("우선순위가 바뀐 이유를 짧게 남겨주세요.");
+    const criterionChanged =
+      !!old &&
+      (old.importance !== selected.importance ||
+        (!!progressRank(old.progress) && old.progress !== selected.progress));
+    if (!progressRank(selected.progress)) {
+      setError("진행상황을 선택해주세요.");
+      return;
+    }
+    if (!selected.processing_type) {
+      setError("처리 유형을 선택해주세요.");
+      return;
+    }
+    if (
+      selected.processing_type === "추적 관리" &&
+      (!selected.reminder_at || Number.isNaN(Date.parse(selected.reminder_at)))
+    ) {
+      setError("추적 관리 업무의 다음 확인일을 입력해주세요.");
+      return;
+    }
+    if (criterionChanged && !reason.trim()) {
+      setError("중요도나 진행상황이 바뀐 이유를 짧게 남겨주세요.");
       return;
     }
     setBusy(true);
@@ -178,6 +239,9 @@ export default function Home() {
         projectOptions.find((p) => p.key === projectKey(selected.company))
           ?.name || selected.company.trim(),
       updated_at: at,
+      initial_progress:
+        old?.initial_progress || old?.progress || selected.progress,
+      change_reason: reason.trim(),
       initial: old?.initial || {
         importance: selected.importance,
         urgency: selected.urgency,
@@ -189,9 +253,7 @@ export default function Home() {
           at,
           actor: email,
           text: old
-            ? scoreChange?.length
-              ? `기준 변경: ${scoreChange.map((k) => `${{ importance: "중요도", urgency: "긴급도", difficulty: "난이도" }[k]} ${old[k]}→${selected[k]}`).join(", ")} · ${reason}`
-              : "업무 내용 또는 상태 수정"
+            ? `${describeChanges(old, selected).join(", ") || "업무 내용 수정"}${reason.trim() ? " · 사유: " + reason.trim() : ""}`
             : "업무 등록",
         },
       ],
@@ -261,6 +323,7 @@ export default function Home() {
             ? ["완료", "드롭"].includes(t.status)
             : !["완료", "드롭"].includes(t.status))) &&
       (!filter || t.owner === filter) &&
+      (!focusOnly || needsAttention(t)) &&
       `${t.title} ${t.company}`.toLowerCase().includes(query.toLowerCase()),
   );
   const projects = projectGroups(tasks);
@@ -352,7 +415,10 @@ export default function Home() {
             <button
               key={String(v)}
               className={view === v ? "active" : ""}
-              onClick={() => setView(String(v))}
+              onClick={() => {
+                setView(String(v));
+                setFocusOnly(false);
+              }}
             >
               {typeof Icon !== "string" && <Icon size={18} />} {String(label)}
             </button>
@@ -457,6 +523,14 @@ export default function Home() {
             </button>
           </div>
           <div className="tools">
+            <button
+              className="focus-toggle"
+              aria-pressed={focusOnly}
+              onClick={() => setFocusOnly(!focusOnly)}
+              title="중요도 3~5 + 지연·막힘·미해결인 미완료 업무"
+            >
+              집중 관리 {tasks.filter(needsAttention).length}
+            </button>
             <button className="flow-toggle" onClick={() => setFlowOpen(true)}>
               프로젝트 흐름
             </button>
@@ -499,7 +573,7 @@ export default function Home() {
               ? "예시 데이터 · 실제 팀 동기화 아님"
               : "팀 변경 사항 실시간 반영"}
           </span>
-          <span>1–2 낮음 · 3–5 높음 · 밀집된 업무는 점을 눌러 확인</span>
+          <span>⚡ 바로 처리 · ↻ 추적 관리 · 밀집된 업무는 점을 눌러 확인</span>
         </footer>
       </main>
       {flowOpen && (
@@ -625,7 +699,7 @@ export default function Home() {
               </div>
               <div className="form-row">
                 <label>
-                  진행 상태
+                  업무 상태
                   <select
                     value={selected.status}
                     onChange={(e) =>
@@ -655,39 +729,118 @@ export default function Home() {
                   />
                 </label>
               </div>
-              <div className="scores">
-                {(
-                  ["importance", "urgency", "difficulty"] as (keyof Scores)[]
-                ).map((k) => (
-                  <label key={k}>
-                    {
-                      {
-                        importance: "중요도",
-                        urgency: "긴급도",
-                        difficulty: "난이도",
-                      }[k]
-                    }{" "}
-                    <b>{selected[k]}</b>
-                    <input
-                      type="range"
-                      min={1}
-                      max={5}
-                      value={selected[k]}
-                      onChange={(e) =>
-                        select({ ...selected, [k]: +e.target.value })
-                      }
-                    />
-                    <small>
-                      {tasks.some((t) => t.id === selected.id)
-                        ? `최초 ${selected.initial[k]} → 현재 ${selected[k]}`
-                        : `등록 기준 ${selected[k]} / 5`}
-                    </small>
-                  </label>
-                ))}
+              <div className="form-row">
+                <label>
+                  진행상황
+                  <select
+                    aria-label="진행상황"
+                    required
+                    value={selected.progress || ""}
+                    onChange={(e) =>
+                      select({
+                        ...selected,
+                        progress: e.target.value as Task["progress"],
+                      })
+                    }
+                  >
+                    <option value="" disabled>
+                      진행상황 선택
+                    </option>
+                    {progressStages.map((stage) => (
+                      <option key={stage.name} value={stage.name}>
+                        {stage.name}
+                      </option>
+                    ))}
+                  </select>
+                  <small>
+                    {progressStages.find(
+                      (stage) => stage.name === selected.progress,
+                    )?.description ||
+                      "기존 긴급도와 다른 기준입니다. 직접 선택해주세요."}
+                  </small>
+                </label>
+                <label>
+                  처리 유형
+                  <select
+                    aria-label="처리 유형"
+                    required
+                    value={selected.processing_type || ""}
+                    onChange={(e) =>
+                      select({
+                        ...selected,
+                        processing_type: e.target
+                          .value as Task["processing_type"],
+                      })
+                    }
+                  >
+                    <option value="" disabled>
+                      처리 유형 선택
+                    </option>
+                    {processingTypes.map((type) => (
+                      <option key={type}>{type}</option>
+                    ))}
+                  </select>
+                  <small>
+                    {selected.processing_type === "추적 관리"
+                      ? "회신·협의·경과를 확인하면서 처리"
+                      : "정보와 권한이 있어 한 번의 조치로 처리"}
+                  </small>
+                </label>
               </div>
+              <div className="scores new-scores">
+                <label>
+                  중요도 <b>{selected.importance}</b>
+                  <input
+                    aria-label="중요도"
+                    type="range"
+                    min={1}
+                    max={5}
+                    value={selected.importance}
+                    onChange={(e) =>
+                      select({ ...selected, importance: +e.target.value })
+                    }
+                  />
+                  <small>
+                    1~2 일반 · 3~5 중요 / 최초 {selected.initial.importance}
+                  </small>
+                </label>
+                <label>
+                  처리 예상시간 (선택)
+                  <select
+                    value={selected.effort || "미정"}
+                    onChange={(e) =>
+                      select({ ...selected, effort: e.target.value })
+                    }
+                  >
+                    {effortOptions.map((value) => (
+                      <option key={value}>{value}</option>
+                    ))}
+                  </select>
+                  <small>처리 계획을 위한 참고 정보</small>
+                </label>
+              </div>
+              {needsAttention(selected) && (
+                <div className="attention-explainer" role="note">
+                  집중 관리 대상 · 중요도 3~5 + 지연·막힘·미해결. 필요한
+                  결정·지원·후속 대응을 챙겨주세요.
+                </div>
+              )}
+              {tasks.some((t) => t.id === selected.id) && (
+                <details className="legacy-scores">
+                  <summary>기존 분류 기록</summary>
+                  <p>
+                    최초 중요도 {selected.initial.importance} · 기존 긴급도{" "}
+                    {selected.urgency} · 기존 난이도 {selected.difficulty}
+                  </p>
+                  <small>
+                    긴급도·난이도 기록은 보존하며 새 좌표에는 사용하지 않습니다.
+                  </small>
+                </details>
+              )}
               <div className="placement">
                 현재 위치 ·{" "}
-                {quadrants.find((q) => q.id === quadrant(selected))?.title}
+                {quadrants.find((q) => q.id === quadrant(selected))?.title ||
+                  "진행상황 미분류"}
               </div>
               {tasks.some((t) => t.id === selected.id) && (
                 <label>
@@ -695,7 +848,7 @@ export default function Home() {
                   <input
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
-                    placeholder="중요도·긴급도·난이도가 바뀌었다면 이유를 남겨주세요"
+                    placeholder="중요도·진행상황이 바뀌었다면 이유를 남겨주세요"
                   />
                 </label>
               )}
@@ -721,10 +874,13 @@ export default function Home() {
                   />
                   <Bell size={16} /> 이메일로 챙겨주기
                 </label>
-                {selected.reminder && (
+                {(selected.reminder ||
+                  selected.processing_type === "추적 관리") && (
                   <>
                     <label>
-                      알림 기준 시각 (기기 시간대)
+                      {selected.processing_type === "추적 관리"
+                        ? "다음 확인일 (기기 시간대)"
+                        : "알림 기준 시각 (기기 시간대)"}
                       <input
                         type="datetime-local"
                         required
@@ -749,14 +905,14 @@ export default function Home() {
                       />
                     </label>
                     <small>
-                      메일은 매일 한국 시간 오전 9시 실행 때 확인해 발송합니다.
-                      기준 시각이 지난 알림을 다음 일일 실행에서 처리하며, 예약
-                      시각에 즉시 발송되지는 않습니다. 하루 최대 5건이며
-                      초과분은 다음 실행으로 이월됩니다.
+                      {selected.reminder
+                        ? "메일은 매일 한국 시간 오전 9시에 확인해 하루 최대 5건 발송합니다. 초과분은 다음 실행으로 이월하며 예약 시각에 즉시 발송되지는 않습니다."
+                        : "다음 확인일은 저장됩니다. 이메일 알림을 켠 경우에만 메일을 발송합니다."}
                     </small>
                     <label>
-                      반복
+                      이메일 반복 주기
                       <select
+                        disabled={!selected.reminder}
                         value={selected.repeat_days}
                         onChange={(e) =>
                           select({ ...selected, repeat_days: +e.target.value })
@@ -771,7 +927,9 @@ export default function Home() {
                     <small>
                       {demo
                         ? "체험 모드에서는 실제 메일이 발송되지 않습니다."
-                        : "담당자에게 발송 · 사용량 한도 초과 시 대기"}
+                        : selected.reminder
+                          ? "담당자에게 발송 · 사용량 한도 초과 시 대기"
+                          : "이메일 알림 꺼짐 · 다음 확인일만 관리"}
                     </small>
                   </>
                 )}
@@ -838,19 +996,24 @@ export default function Home() {
               <h3>
                 <HistoryIcon size={18} /> 차곡차곡 쌓인 히스토리
               </h3>
-              {selected.history.length === 0 ? (
+              {historyNotice && (
+                <p className="history-notice">{historyNotice}</p>
+              )}
+              {(serverHistory || selected.history).length === 0 ? (
                 <p>첫 기록이 곧 시작돼요.</p>
               ) : (
-                [...selected.history].reverse().map((h, i) => (
-                  <div key={i}>
-                    <span className="history-dot" />
-                    <strong>{h.text}</strong>
-                    <small>
-                      {names[h.actor] || h.actor} ·{" "}
-                      {new Date(h.at).toLocaleString("ko-KR")}
-                    </small>
-                  </div>
-                ))
+                [...(serverHistory || selected.history)]
+                  .reverse()
+                  .map((h, i) => (
+                    <div key={i}>
+                      <span className="history-dot" />
+                      <strong>{h.text}</strong>
+                      <small>
+                        {names[h.actor] || h.actor} ·{" "}
+                        {new Date(h.at).toLocaleString("ko-KR")}
+                      </small>
+                    </div>
+                  ))
               )}
             </section>
           </section>

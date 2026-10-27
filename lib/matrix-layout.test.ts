@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { blank } from "./domain.ts";
+import { blank, progressStages, progressRank } from "./domain.ts";
 import { matrixLayout, intersects } from "./matrix-layout.ts";
-import { axisPosition } from "./projects.ts";
+import { axisPosition, matrixX } from "./projects.ts";
 test("dense maps keep all 25 score points; labels never overlap or cover other points", () => {
   const tasks = Array.from({ length: 25 }, (_, i) => ({
     ...blank(),
     importance: Math.floor(i / 5) + 1,
-    urgency: (i % 5) + 1,
+    urgency: 2,
+    progress: progressStages[i % 5].name,
     title: `업무 ${i}`,
   }));
   for (const { width, height, compact } of [
@@ -24,7 +25,7 @@ test("dense maps keep all 25 score points; labels never overlap or cover other p
     );
     for (const item of layout) {
       const t = item.group[0];
-      assert.equal(item.point.x, (axisPosition(t.urgency) * width) / 100);
+      assert.equal(item.point.x, (matrixX(t) * width) / 100);
       assert.equal(
         item.point.y,
         ((100 - axisPosition(t.importance)) * height) / 100,
@@ -37,7 +38,11 @@ test("dense maps keep all 25 score points; labels never overlap or cover other p
           b.x + b.width <= width &&
           b.y + b.height <= height,
       );
-      assert.ok(t.urgency >= 3 ? b.x >= width / 2 : b.x + b.width <= width / 2);
+      assert.ok(
+        (progressRank(t.progress) || 0) >= 3
+          ? b.x >= width / 2
+          : b.x + b.width <= width / 2,
+      );
       assert.ok(
         t.importance >= 3 ? b.y + b.height <= height / 2 : b.y >= height / 2,
       );
@@ -59,4 +64,12 @@ test("dense maps keep all 25 score points; labels never overlap or cover other p
       for (let j = i + 1; j < labels.length; j++)
         assert.ok(!intersects(labels[i], labels[j], 6));
   }
+});
+
+test("legacy unclassified tasks are visible in their own x position, not silently remapped", () => {
+  const task = { ...blank(), progress: undefined, urgency: 5 };
+  const items = matrixLayout([task], 1000, 500, false);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].point.x, 60);
+  assert.equal(task.urgency, 5);
 });

@@ -7,7 +7,9 @@ const draft = {
   description: "계약 조건 확인 필요",
   due: "2026-11-01",
   importance: 4,
-  urgency: 5,
+  progress: "지연",
+  processing_type: "추적 관리",
+  urgency: 2,
   difficulty: 2,
 };
 const response = (input: unknown, stop_reason = "tool_use") => ({
@@ -53,4 +55,15 @@ test("truncated, refused, malformed and out-of-range drafts are rejected", () =>
 test("impossible or uncertain dates are not silently used", () => {
   assert.equal(claudeDraft(response({ ...draft, due: "2026-02-30" })).due, "");
   assert.equal(claudeDraft(response({ ...draft, due: "다음주" })).due, "");
+});
+
+test("uncertain progress requires manual confirmation and does not become healthy", () => {
+  assert.equal(
+    claudeDraft(response({ ...draft, progress: "확인 필요" })).progress,
+    null,
+  );
+  assert.throws(() => claudeDraft(response({ ...draft, progress: "보통" })));
+  assert.throws(() =>
+    claudeDraft(response({ ...draft, processing_type: "알아서" })),
+  );
 });

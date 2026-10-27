@@ -1,5 +1,5 @@
-import type { Task } from "./domain.ts";
-import { scoreGroups, axisPosition } from "./projects.ts";
+import { progressRank, type Task } from "./domain.ts";
+import { scoreGroups, axisPosition, matrixX } from "./projects.ts";
 export type Box = { x: number; y: number; width: number; height: number };
 export const intersects = (a: Box, b: Box, gap = 0) =>
   a.x < b.x + b.width + gap &&
@@ -14,10 +14,12 @@ export function matrixLayout(
   compact: boolean,
 ) {
   const groups = scoreGroups(tasks).sort(
-    (a, b) => b[0].importance - a[0].importance || a[0].urgency - b[0].urgency,
+    (a, b) =>
+      b[0].importance - a[0].importance ||
+      (progressRank(a[0].progress) || 0) - (progressRank(b[0].progress) || 0),
   );
   const points = groups.map((group) => ({
-    x: (axisPosition(group[0].urgency) * width) / 100,
+    x: (matrixX(group[0]) * width) / 100,
     y: ((100 - axisPosition(group[0].importance)) * height) / 100,
   }));
   const used: Box[] = [];
@@ -28,8 +30,8 @@ export function matrixLayout(
   return groups.map((group, i) => {
     const t = group[0],
       point = points[i];
-    const xMin = t.urgency >= 3 ? width / 2 + 14 : 0,
-      xMax = t.urgency >= 3 ? width : width / 2 - 14;
+    const xMin = (progressRank(t.progress) || 0) >= 3 ? width / 2 + 14 : 0,
+      xMax = (progressRank(t.progress) || 0) >= 3 ? width : width / 2 - 14;
     const yMin = t.importance >= 3 ? 0 : height / 2 + 14,
       yMax = t.importance >= 3 ? height / 2 - 14 : height;
     const xs = [

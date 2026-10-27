@@ -7,8 +7,11 @@ import {
   quadrant,
   changed,
   reviewNeeded,
+  progressStages,
+  progressRank,
+  needsAttention,
 } from "../../lib/domain";
-import { axisPosition } from "../../lib/projects";
+import { axisPosition, matrixX } from "../../lib/projects";
 import { matrixLayout } from "../../lib/matrix-layout";
 export function MatrixBoard({
   tasks,
@@ -42,13 +45,24 @@ export function MatrixBoard({
     <>
       <section
         className="matrix-board"
-        aria-label="업무 매트릭스: 가로축 긴급도, 세로축 중요도, 3점부터 높음"
+        aria-label="업무 매트릭스: 가로축 진행상황, 세로축 중요도"
       >
+        {tasks.some((t) => !progressRank(t.progress)) && (
+          <button
+            className="unclassified-toggle"
+            onClick={() =>
+              setCluster(tasks.filter((t) => !progressRank(t.progress)))
+            }
+          >
+            미분류 {tasks.filter((t) => !progressRank(t.progress)).length} ·
+            설정하기
+          </button>
+        )}
         <div className="quadrant-backgrounds">
           {quadrants.map((q, i) => (
             <article
               key={q.id}
-              className={`map-quadrant ${q.color}`}
+              className={`map-quadrant ${q.color} ${q.id === "focus" ? "focus-quadrant" : ""}`}
               aria-label={q.title}
             >
               <button
@@ -69,17 +83,26 @@ export function MatrixBoard({
           <div className="cross x-cross" />
           <div className="cross y-cross" />
           <span className="axis-label y-label">중요도 ↑</span>
-          <span className="axis-label x-label">긴급도 →</span>
-          <span className="axis-origin">2.5</span>
-          {[1, 2, 3, 4, 5].map((n) => (
+          <span className="axis-label x-label">진행상황 →</span>
+
+          {progressStages.map((stage, index) => (
             <span
-              key={`x${n}`}
-              className="axis-tick x-tick"
-              style={{ left: `${axisPosition(n)}%` }}
+              key={stage.name}
+              className="axis-tick x-tick progress-tick"
+              title={stage.description}
+              style={{ left: `${axisPosition(index + 1)}%` }}
             >
-              {n}
+              {stage.name}
             </span>
           ))}
+          {tasks.some((t) => !progressRank(t.progress)) && (
+            <span
+              className="axis-tick x-tick progress-tick"
+              style={{ left: "6%" }}
+            >
+              미분류
+            </span>
+          )}
           {[1, 2, 3, 4, 5].map((n) => (
             <span
               key={`y${n}`}
@@ -112,11 +135,11 @@ export function MatrixBoard({
             const t = group[0];
             return (
               <button
-                key={`${t.importance}:${t.urgency}`}
+                key={`${t.importance}:${t.progress || "unclassified"}`}
                 title={group.map((task) => task.title).join(" · ")}
-                className={`task-node ${label ? "" : "label-hidden"} ${quadrants.find((q) => q.id === quadrant(t))?.color}`}
+                className={`task-node ${label ? "" : "label-hidden"} ${quadrants.find((q) => q.id === quadrant(t))?.color || "unclassified"} ${group.some(needsAttention) ? "attention-node" : ""}`}
                 style={{
-                  left: `${axisPosition(t.urgency)}%`,
+                  left: `${matrixX(t)}%`,
                   top: `${100 - axisPosition(t.importance)}%`,
                 }}
                 onClick={() =>
@@ -124,7 +147,7 @@ export function MatrixBoard({
                 }
                 aria-label={
                   group.length > 1
-                    ? `${t.title} 외 ${group.length - 1}개 업무, 중요도 ${t.importance}, 긴급도 ${t.urgency}`
+                    ? `${t.title} 외 ${group.length - 1}개 업무, 중요도 ${t.importance}, 진행상황 ${t.progress || "미분류"}`
                     : label
                       ? undefined
                       : t.title
@@ -143,11 +166,24 @@ export function MatrixBoard({
                       height: label.height,
                     }}
                   >
-                    <h3>{t.title}</h3>
+                    <div className="node-title">
+                      <span
+                        className="processing-mark"
+                        title={t.processing_type || "처리 유형 미분류"}
+                        aria-label={t.processing_type || "처리 유형 미분류"}
+                      >
+                        {t.processing_type === "추적 관리"
+                          ? "↻"
+                          : t.processing_type === "바로 처리"
+                            ? "⚡"
+                            : "?"}
+                      </span>
+                      <h3>{t.title}</h3>
+                    </div>
                     <span className="node-meta">
                       {group.length > 1
                         ? `${group.length}개 업무 · 펼치기`
-                        : t.company || t.status}
+                        : `${t.progress || "미분류"} · ${t.processing_type || "유형 미분류"}`}
                       {t.reminder && <Bell size={12} />}{" "}
                       {changed(t) && (
                         <span title="최초 등록 후 기준 변경">↔</span>
@@ -162,7 +198,7 @@ export function MatrixBoard({
                 {group.some(changed) && (
                   <span
                     className="node-change"
-                    title="등록 후 중요도·긴급도·난이도 변경"
+                    title="등록 후 분류 기준 변경"
                     aria-label="기준 변경"
                   >
                     ↔
@@ -206,7 +242,8 @@ export function MatrixBoard({
             </button>
             <h2>같은 위치의 업무 {cluster.length}개</h2>
             <p>
-              중요도 {cluster[0].importance} · 긴급도 {cluster[0].urgency}
+              중요도 {cluster[0].importance} · 진행상황{" "}
+              {cluster[0].progress || "미분류"}
             </p>
             {cluster.map((t) => (
               <button
@@ -219,7 +256,8 @@ export function MatrixBoard({
               >
                 <strong>{t.title}</strong>
                 <span>
-                  {t.company || "내부 업무"} · {t.status}
+                  {t.company || "내부 업무"} · {t.progress || "미분류"} ·{" "}
+                  {t.processing_type || "유형 미분류"} · {t.status}
                   {changed(t) && " · 기준 변경"}
                 </span>
               </button>
