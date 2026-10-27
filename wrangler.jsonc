@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "oreum-workspace",
+  "name": "oreum-todo",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-10-27",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
@@ -12,7 +12,7 @@
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "oreum-workspace",
+      "service": "oreum-todo",
     },
   ],
   "observability": {

@@ -12,7 +12,7 @@ try {
   if (url.protocol !== "https:") throw Error();
 } catch {
   console.error(
-    "NEXT_PUBLIC_SUPABASE_URL은 유효한 HTTPS 프로젝트 URL이어야 합니다.",
+    "NEXT_PUBLIC_SUPABASE_URL 값에는 https://cvmmxhnoyhnybiniiedc.supabase.co 주소만 입력하세요. 대괄호·소괄호·따옴표·백틱 또는 변수 이름을 포함하지 마세요.",
   );
   process.exit(1);
 }

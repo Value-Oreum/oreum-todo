@@ -5,7 +5,7 @@
 
 아직 이 실행 환경에는 Cloudflare 인증이나 실제 API 키가 없으므로 여기서 실제 서비스 배포와 계정 간 동기화·메일·AI를 검증하지 않았습니다. 아래는 배포할 두 Worker의 설정입니다. **Cloudflare Pages가 아닌 Workers**를 선택하세요. Next.js 서버 API를 OpenNext로 실행합니다.
 
-## 1. 앱 Worker: oreum-workspace
+## 1. 앱 Worker: oreum-todo
 
 Cloudflare → Workers & Pages → Create → Workers → Import a repository에서 GitHub의 `Value-Oreum/oreum-todo`를 선택합니다. GitHub에 앱 소스가 올라온 뒤 진행합니다.
 
@@ -31,7 +31,7 @@ Cloudflare → Workers & Pages → Create → Workers → Import a repository에
 | `SUPABASE_SERVICE_ROLE_KEY` | Secret | Supabase 서버 전용 service_role 키                      |
 | `ANTHROPIC_API_KEY`         | Secret | Claude API 키                                           |
 | `ANTHROPIC_MODEL`           | Text   | `claude-haiku-4-5-20251001`                             |
-| `NEXT_PUBLIC_APP_URL`       | Text   | 실제 배포된 `https://oreum-workspace.…workers.dev` 주소 |
+| `NEXT_PUBLIC_APP_URL`       | Text   | 실제 배포된 `https://oreum-todo.…workers.dev` 주소 |
 
 `NEXT_PUBLIC_SUPABASE_URL`은 wrangler 설정에 이미 반영했습니다. 실제 데이터 권한은 Supabase RLS로 보호합니다. 본문·캐릭터는 정적 자산으로 배포하고 별도 R2·이미지 변환 유료 바인딩은 사용하지 않습니다. 유료 플랜 전환을 자동으로 요청하지 않습니다. 계정의 무료 요청·CPU 한도는 운영 부하에서 별도 확인해야 합니다.
 
@@ -72,3 +72,5 @@ Google Cloud OAuth 앱의 Authorized redirect URIs에는 Supabase Google provide
 - 시험 업무에 알림을 등록하고 다음 일일 실행의 Worker Logs·reminder_jobs·실제 받은 메일을 확인
 
 API 키를 채팅·GitHub 파일·빌드 명령에 넣지 마세요. 앱 서버용 Secret과 알림 Worker용 Secret은 서로 별도로 등록합니다. DNS 인증 완료만으로 실제 발송 검증이 끝난 것은 아닙니다.
+
+URL 빌드 변수에는 `https://cvmmxhnoyhnybiniiedc.supabase.co` 주소 문자열만 입력하세요. Markdown 링크의 대괄호·소괄호, 따옴표, 백틱이나 변수 이름을 값에 포함하면 안 됩니다.
