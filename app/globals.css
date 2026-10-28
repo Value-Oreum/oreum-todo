@@ -3180,6 +3180,10 @@ footer {
   padding: 34px 8px 8px;
 }
 .priority-board .priority-region .region-meaning {
+  /* Absolute corners must use the whole region, not an inherited grid row. */
+  grid-area: auto;
+  justify-self: auto;
+  align-self: auto;
   position: absolute;
   right: 0;
   bottom: 0;
