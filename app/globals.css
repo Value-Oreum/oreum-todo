@@ -3225,3 +3225,128 @@ footer {
   outline: 2px solid #eea640;
   outline-offset: -2px;
 }
+/* Compact task tiles show only the identity and a status dot. */
+.priority-cards {
+  grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 280px));
+}
+.priority-card {
+  position: relative;
+  padding: 5px;
+}
+.priority-open {
+  text-align: left;
+  align-items: flex-start;
+  gap: 3px;
+}
+.priority-open strong {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  text-align: left;
+  font-size: 14px;
+}
+.status-dot {
+  font-size: 19px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.priority-open small {
+  padding-left: 26px;
+  font-size: 12px;
+}
+.priority-card .watch-signal {
+  display: inline-flex;
+  width: 28px;
+  min-height: 28px;
+  padding: 3px;
+  margin: 0 2px;
+  align-items: center;
+  justify-content: center;
+}
+.assignee-picker {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.assignee-picker legend {
+  font-size: 14px;
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+.assignee-picker label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  background: #e8efdf;
+  border: 1px solid #b4c8a8;
+  border-radius: 10px;
+  cursor: pointer;
+  min-height: 44px;
+}
+.assignee-picker label:has(input:checked) {
+  background: #315e44;
+  color: white;
+  border-color: #315e44;
+}
+.assignee-picker input {
+  width: 17px !important;
+  min-height: 17px !important;
+  height: 17px;
+  padding: 0;
+  accent-color: #315e44;
+}
+.assignee-picker small {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: #697566;
+}
+.drawer select {
+  background: #f0f5e9;
+  border: 1px solid #c3d2b5;
+  border-radius: 10px;
+  color: #294b35;
+  font-weight: 600;
+}
+.drawer .form-actions .primary {
+  background: linear-gradient(120deg, #315f44, #588353);
+  color: white;
+  border: 0;
+  box-shadow: 0 4px 12px #315f4429;
+  border-radius: 12px;
+  font-weight: 750;
+  min-height: 46px;
+}
+.task-template {
+  padding: 14px;
+  background: #eaf1e2;
+  border-radius: 12px;
+  border: 1px solid #cadabd;
+}
+.parent-link {
+  padding: 10px;
+  background: #eaf1e2;
+  color: #315e44;
+  border-radius: 8px;
+}
+@media (max-width: 760px),
+  (max-width: 1024px) and (max-height: 500px) and (pointer: coarse) {
+  .priority-card .drag-handle {
+    min-width: 28px;
+    width: 28px;
+  }
+  .priority-card .priority-open {
+    min-height: 44px;
+  }
+  .priority-card .priority-open strong {
+    font-size: 13px;
+    gap: 4px;
+  }
+  .priority-open small {
+    padding-left: 23px;
+  }
+}

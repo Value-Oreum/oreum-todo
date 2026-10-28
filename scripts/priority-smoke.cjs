@@ -72,16 +72,47 @@ module.exports = async function run(mobile = false) {
     await page
       .getByRole("combobox", { name: "진행상황", exact: true })
       .selectOption("이슈");
+    await page.getByRole("checkbox", { name: "형원", exact: true }).check();
+    await page
+      .getByRole("combobox", { name: "처리 유형", exact: true })
+      .selectOption("추적 관리");
     await page.getByRole("button", { name: "업무 저장", exact: true }).click();
-    const card = page.locator(".priority-card").filter({
-      has: page.getByRole("button", {
-        name: "새 우선순위 테스트 테스트 프로젝트",
-        exact: true,
-      }),
-    });
+    const card = page
+      .locator(".priority-card")
+      .filter({ hasText: "새 우선순위 테스트" });
     await card.waitFor();
     assert.ok((await card.getAttribute("class")).includes("issue-card"));
     const taskId = await card.getAttribute("data-task-id");
+    assert.equal(await card.locator("select").count(), 0);
+    assert.equal(await card.locator(".priority-card-meta").count(), 0);
+    const saved = await page.evaluate(
+      (id) =>
+        JSON.parse(localStorage.getItem("oreum-demo")).find((t) => t.id === id),
+      taskId,
+    );
+    assert.equal(saved.owners.length, 2);
+    assert.equal(saved.reminder_at, "");
+    await page.getByRole("button", { name: "업무 등록", exact: true }).click();
+    await page
+      .getByRole("combobox", { name: "기존 업무 불러오기" })
+      .selectOption(taskId);
+    assert.equal(
+      await page.getByLabel("어떤 일인가요?").inputValue(),
+      saved.title,
+    );
+    assert.equal(
+      await page
+        .getByRole("combobox", { name: "처리 유형", exact: true })
+        .inputValue(),
+      "추적 관리",
+    );
+    assert.equal(
+      await page
+        .getByRole("checkbox", { name: "형원", exact: true })
+        .isChecked(),
+      true,
+    );
+    await page.getByRole("button", { name: "닫기", exact: true }).click();
     assert.equal(
       await card.evaluate(
         (el) => el.closest("[data-quadrant]").dataset.quadrant,
@@ -140,7 +171,11 @@ module.exports = async function run(mobile = false) {
           ?.closest("[data-quadrant]").dataset.quadrant === "quick",
       taskId,
     );
-    await card.getByRole("combobox").selectOption("focus");
+    await card.locator(".priority-open").click();
+    await page
+      .getByRole("combobox", { name: "중요", exact: true })
+      .selectOption("yes");
+    await page.getByRole("button", { name: "업무 저장", exact: true }).click();
     await page.waitForFunction(
       (id) =>
         document
@@ -207,9 +242,7 @@ module.exports = async function run(mobile = false) {
     const focus = await page.locator('[data-quadrant="focus"]').boundingBox(),
       future = await page.locator('[data-quadrant="future"]').boundingBox();
     assert.ok(focus.width > future.width);
-    assert.ok(
-      await page.getByRole("button", { name: /긴급 칸으로 옮길까요/ }).count(),
-    );
+    assert.ok(await page.getByRole("button", { name: /마감 임박/ }).count());
     assert.ok(
       await page
         .getByRole("button", { name: "7일 미갱신 · 지연/병목 후보 확인" })

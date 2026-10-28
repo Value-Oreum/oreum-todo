@@ -63,6 +63,8 @@ export type Task = Scores & {
   title: string;
   company: string;
   owner: string;
+  owners?: string[];
+  parent_task_id?: string;
   status: string;
   description: string;
   due: string;
@@ -207,6 +209,10 @@ export function describeChanges(old: Task, next: Task) {
     );
   if (old.reminder !== next.reminder)
     changes.push(`이메일 알림 ${next.reminder ? "켜짐" : "꺼짐"}`);
+  if (
+    (old.owners || [old.owner]).join() !== (next.owners || [next.owner]).join()
+  )
+    changes.push(`담당자 ${(next.owners || [next.owner]).join(", ")}`);
   for (const check of next.quick_checks || []) {
     const before = old.quick_checks?.find((c) => c.id === check.id);
     if (!before) changes.push(`즉시 확인 추가: ${check.text}`);

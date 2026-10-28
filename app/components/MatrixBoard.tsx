@@ -7,7 +7,6 @@ import {
   quadrant,
   quadrantSizes,
   progressLabel,
-  changed,
   dueSignal,
   staleSignal,
   activeTask,
@@ -186,21 +185,25 @@ export function MatrixBoard({
                               className="priority-open"
                               onClick={() => onOpen(t)}
                             >
-                              <strong>{t.title}</strong>
+                              <strong>
+                                <span
+                                  className={`status-dot ${progress === "이슈" ? "state-issue" : progress === "지연/병목" ? "state-delay" : "state-good"}`}
+                                  role="img"
+                                  aria-label={progress}
+                                  title={progress}
+                                >
+                                  ●
+                                </span>
+                                {t.title}
+                              </strong>
                               <small>{t.company || "내부 업무"}</small>
                             </button>
-                          </div>
-                          <div className="priority-card-meta">
-                            <span>● {progress}</span>
-                            {changed(t) && (
-                              <span title="최초 등록 후 기준 변경">
-                                ↔ 변경
-                              </span>
-                            )}
                           </div>
                           {dueSignal(t, now) && (
                             <button
                               className="watch-signal"
+                              aria-label="마감 임박 · 긴급 칸으로 이동"
+                              title="마감 임박 · 긴급 칸으로 이동"
                               disabled={!!saving}
                               onClick={() =>
                                 void move(
@@ -209,12 +212,14 @@ export function MatrixBoard({
                                 )
                               }
                             >
-                              마감 {t.due} · 긴급 칸으로 옮길까요? →
+                              ⏰
                             </button>
                           )}
                           {staleSignal(t, now) && (
                             <button
                               className="watch-signal"
+                              aria-label="7일 미갱신 · 지연/병목 후보 확인"
+                              title="7일 미갱신 · 지연/병목 후보 확인"
                               disabled={!!saving}
                               onClick={async () => {
                                 if (locked.current) return;
@@ -228,22 +233,8 @@ export function MatrixBoard({
                                 }
                               }}
                             >
-                              7일 미갱신 · 지연/병목 후보 확인
+                              ⚠
                             </button>
-                          )}
-                          {activeTask(t) && (
-                            <select
-                              aria-label={`${t.title} 사분면 이동`}
-                              value={q.id}
-                              disabled={!!saving}
-                              onChange={(e) => void move(t, e.target.value)}
-                            >
-                              {quadrants.map((option) => (
-                                <option key={option.id} value={option.id}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
                           )}
                         </div>
                       );

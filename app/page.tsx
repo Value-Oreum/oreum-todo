@@ -246,10 +246,14 @@ export default function Home() {
       return;
     }
     if (
-      selected.processing_type === "추적 관리" &&
+      selected.reminder &&
       (!selected.reminder_at || Number.isNaN(Date.parse(selected.reminder_at)))
     ) {
-      setError("추적 관리 업무의 다음 확인일을 입력해주세요.");
+      setError("이메일 알림 날짜를 입력해주세요.");
+      return;
+    }
+    if (!(selected.owners || [selected.owner]).length) {
+      setError("담당자를 한 명 이상 선택해주세요.");
       return;
     }
     setBusy(true);
@@ -492,7 +496,7 @@ export default function Home() {
           (view === "archive"
             ? ["완료", "드롭"].includes(t.status)
             : !["완료", "드롭"].includes(t.status))) &&
-      (!filter || t.owner === filter) &&
+      (!filter || (t.owners || [t.owner]).includes(filter)) &&
       (!focusOnly || needsAttention(t)) &&
       `${t.title} ${t.company}`.toLowerCase().includes(query.toLowerCase()),
   );
@@ -798,7 +802,10 @@ export default function Home() {
                 >
                   <strong>{t.title}</strong>
                   <span>
-                    {t.company || "내부 업무"} · {names[t.owner] || t.owner}
+                    {t.company || "내부 업무"} ·{" "}
+                    {(t.owners || [t.owner])
+                      .map((m) => names[m] || m)
+                      .join(", ")}
                   </span>
                   <span className="mobile-task-badges">
                     <b>{progressLabel(t.progress)}</b>
@@ -1037,6 +1044,60 @@ export default function Home() {
                 않습니다.
               </small>
             </details>
+            {!tasks.some((t) => t.id === selected.id) && (
+              <label className="task-template">
+                기존 업무에서 이어 등록 (선택)
+                <select
+                  aria-label="기존 업무 불러오기"
+                  value={selected.parent_task_id || ""}
+                  onChange={(e) => {
+                    const source = tasks.find((t) => t.id === e.target.value);
+                    if (!source) {
+                      select({ ...selected, parent_task_id: undefined });
+                      return;
+                    }
+                    select({
+                      ...selected,
+                      title: source.title,
+                      company: source.company,
+                      owner: source.owner,
+                      owners: source.owners || [source.owner],
+                      importance: source.importance,
+                      urgency: source.urgency,
+                      difficulty: source.difficulty,
+                      progress:
+                        progressLabel(source.progress) === "미분류"
+                          ? null
+                          : (progressLabel(
+                              source.progress,
+                            ) as Task["progress"]),
+                      processing_type: "추적 관리",
+                      effort: source.effort,
+                      description: source.description,
+                      due: source.due,
+                      reminder: false,
+                      reminder_at: "",
+                      repeat_days: source.repeat_days,
+                      parent_task_id: source.id,
+                    });
+                  }}
+                >
+                  <option value="">새 업무로 작성</option>
+                  {tasks
+                    .filter((t) => !t.deleted)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.company ? `${t.company} · ` : ""}
+                        {t.title}
+                      </option>
+                    ))}
+                </select>
+                <small>
+                  기존 내용을 불러온 뒤 수정해 저장하면 새 후속 업무로
+                  연결됩니다. 이메일 알림은 필요할 때 켜주세요.
+                </small>
+              </label>
+            )}
             <label>
               어떤 일인가요?
               <input
@@ -1055,9 +1116,48 @@ export default function Home() {
                   list="project-options"
                   maxLength={120}
                   value={selected.company}
-                  onChange={(e) =>
-                    select({ ...selected, company: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const company = e.target.value;
+                    const source = !tasks.some((t) => t.id === selected.id)
+                      ? tasks
+                          .filter(
+                            (t) =>
+                              !t.deleted &&
+                              projectKey(t.company) === projectKey(company),
+                          )
+                          .sort((a, b) =>
+                            b.updated_at.localeCompare(a.updated_at),
+                          )[0]
+                      : undefined;
+                    select(
+                      source
+                        ? {
+                            ...selected,
+                            company: source.company,
+                            title: selected.title || source.title,
+                            owner: source.owner,
+                            owners: source.owners || [source.owner],
+                            importance: source.importance,
+                            urgency: source.urgency,
+                            difficulty: source.difficulty,
+                            progress:
+                              progressLabel(source.progress) === "미분류"
+                                ? null
+                                : (progressLabel(
+                                    source.progress,
+                                  ) as Task["progress"]),
+                            processing_type: "추적 관리",
+                            effort: source.effort,
+                            description: source.description,
+                            due: source.due,
+                            parent_task_id: source.id,
+                            reminder: false,
+                            reminder_at: "",
+                            repeat_days: source.repeat_days,
+                          }
+                        : { ...selected, company },
+                    );
+                  }}
                 />
                 <datalist id="project-options">
                   {projectOptions.map((p) => (
@@ -1065,26 +1165,38 @@ export default function Home() {
                   ))}
                 </datalist>
               </label>
-              <label>
-                담당자
-                <select
-                  value={selected.owner}
-                  onChange={(e) =>
-                    select({ ...selected, owner: e.target.value })
-                  }
-                >
-                  {!assignees.includes(selected.owner) && (
-                    <option value={selected.owner} disabled>
-                      기존 담당자 ({names[selected.owner] || selected.owner})
-                    </option>
-                  )}
-                  {assignees.map((m) => (
-                    <option key={m} value={m}>
-                      {names[m]}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <fieldset className="assignee-picker">
+                <legend>담당자 (복수 선택)</legend>
+                {[
+                  ...new Set([
+                    ...assignees,
+                    ...(selected.owners || [selected.owner]),
+                  ]),
+                ].map((m) => (
+                  <label key={m}>
+                    <input
+                      type="checkbox"
+                      checked={(selected.owners || [selected.owner]).includes(
+                        m,
+                      )}
+                      onChange={(e) => {
+                        const owners = e.target.checked
+                          ? [...(selected.owners || [selected.owner]), m]
+                          : (selected.owners || [selected.owner]).filter(
+                              (x) => x !== m,
+                            );
+                        select({
+                          ...selected,
+                          owners,
+                          owner: owners[0] || selected.owner,
+                        });
+                      }}
+                    />
+                    {names[m] || m}
+                  </label>
+                ))}
+                <small>이메일 알림은 첫 번째 선택 담당자에게 발송됩니다.</small>
+              </fieldset>
             </div>
             <div className="form-row">
               <label>
@@ -1222,6 +1334,13 @@ export default function Home() {
                 </small>
               </details>
             )}
+            {selected.parent_task_id && (
+              <p className="parent-link">
+                이어지는 업무:{" "}
+                {tasks.find((t) => t.id === selected.parent_task_id)?.title ||
+                  "기존 업무"}
+              </p>
+            )}
             <div className="placement">
               현재 위치 ·{" "}
               {quadrants.find((q) => q.id === quadrant(selected))?.title ||
@@ -1268,7 +1387,7 @@ export default function Home() {
                       : "알림 기준 시각 (기기 시간대)"}
                     <input
                       type="datetime-local"
-                      required
+                      required={selected.reminder}
                       value={
                         selected.reminder_at
                           ? new Date(
