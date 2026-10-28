@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { GripVertical } from "lucide-react";
 import {
   Task,
   quadrants,
@@ -179,23 +178,20 @@ export function MatrixBoard({
                                 setTarget(null);
                               }}
                             >
-                              <GripVertical size={18} />
+                              <span
+                                className={`status-dot ${progress === "이슈" ? "state-issue" : progress === "지연/병목" ? "state-delay" : "state-good"}`}
+                                role="img"
+                                aria-label={progress}
+                                title={progress}
+                              >
+                                ●
+                              </span>
                             </button>
                             <button
                               className="priority-open"
                               onClick={() => onOpen(t)}
                             >
-                              <strong>
-                                <span
-                                  className={`status-dot ${progress === "이슈" ? "state-issue" : progress === "지연/병목" ? "state-delay" : "state-good"}`}
-                                  role="img"
-                                  aria-label={progress}
-                                  title={progress}
-                                >
-                                  ●
-                                </span>
-                                {t.title}
-                              </strong>
+                              <strong>{t.title}</strong>
                               <small>{t.company || "내부 업무"}</small>
                             </button>
                           </div>
