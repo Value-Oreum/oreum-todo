@@ -103,19 +103,10 @@ export function MatrixBoard({
                   title={q.note}
                 >
                   <span>
-                    중요{" "}
-                    <b>
-                      {q.id === "future" || q.id === "focus" ? "예" : "아니오"}
-                    </b>
+                    중요{q.id === "future" || q.id === "focus" ? "O" : "X"}
                   </span>
                   <span>
-                    긴급{" "}
-                    <b>
-                      {q.id === "focus" || q.id === "quick" ? "예" : "아니오"}
-                    </b>
-                  </span>
-                  <span className="meaning-icon" aria-hidden="true">
-                    ⓘ
+                    긴급{q.id === "focus" || q.id === "quick" ? "O" : "X"}
                   </span>
                 </button>
                 <div
