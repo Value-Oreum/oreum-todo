@@ -524,9 +524,7 @@ export default function Home() {
           />
         </div>
         <h1>
-          What to do
-          <br />
-          for <em>OREUM</em>
+          OREUM <em>WORKs</em>
         </h1>
         <button
           className="primary"
@@ -585,7 +583,7 @@ export default function Home() {
         <span className="nav-label">WORKSPACE</span>
         <nav>
           {[
-            ["active", "업무 매트릭스", LayoutGrid],
+            ["active", "업무 현황판", LayoutGrid],
             ["archive", "완료 보관함", Archive],
             ["trash", "휴지통", Trash2],
           ].map(([v, label, Icon]) => (
@@ -654,7 +652,7 @@ export default function Home() {
           <div>
             <h1>
               {view === "active"
-                ? "업무 매트릭스"
+                ? "업무 현황판"
                 : view === "archive"
                   ? isMobile
                     ? "완료 보관함"

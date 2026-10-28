@@ -158,8 +158,14 @@ export function quadrantSizes(tasks: Task[]) {
       weight("future") + weight("focus"),
       weight("review") + weight("quick"),
     ),
-    upperLeft: split(weight("future"), weight("focus")),
-    lowerLeft: split(weight("review"), weight("quick")),
+    upperLeft: split(
+      weight("future") + weight("review"),
+      weight("focus") + weight("quick"),
+    ),
+    lowerLeft: split(
+      weight("future") + weight("review"),
+      weight("focus") + weight("quick"),
+    ),
   };
 }
 export function changed(t: Task) {

@@ -8,8 +8,8 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 export const metadata = {
-  title: "What to do for OREUM",
-  description: "함께 보고, 가볍게 기록하고, 놓치지 않는 업무 매트릭스",
+  title: "OREUM WORKs",
+  description: "함께 보고, 가볍게 기록하고, 놓치지 않는 업무 현황판",
 };
 export default function RootLayout({
   children,

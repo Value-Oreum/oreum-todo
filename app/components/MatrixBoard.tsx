@@ -13,6 +13,7 @@ import {
   activeTask,
 } from "../../lib/domain";
 import { Dialog } from "./Dialog";
+import { useMobile } from "../hooks/useMobile";
 export function MatrixBoard({
   tasks,
   onOpen,
@@ -37,7 +38,15 @@ export function MatrixBoard({
     const timer = setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(timer);
   }, []);
-  const sizes = quadrantSizes(tasks);
+  const compact = useMobile();
+  const weights = quadrantSizes(tasks);
+  const keepReadable = (size: number) =>
+    compact ? Math.max(40, Math.min(60, size)) : size;
+  const sizes = {
+    top: keepReadable(weights.top),
+    upperLeft: keepReadable(weights.upperLeft),
+    lowerLeft: keepReadable(weights.lowerLeft),
+  };
   async function move(task: Task, q: string) {
     if (locked.current || quadrant(task) === q) return;
     locked.current = true;
@@ -80,17 +89,34 @@ export function MatrixBoard({
                 data-quadrant={q.id}
                 className={`priority-region ${q.color} ${target === q.id ? "drop-target" : ""}`}
               >
-                <button
-                  className="region-heading"
-                  onClick={() => setMeaning(q.id)}
-                  title={q.note}
-                >
+                <div className="region-heading">
                   <strong>
                     {q.title}{" "}
                     <b>{tasks.filter((t) => quadrant(t) === q.id).length}</b>
                   </strong>
-                  <span>{q.label} ⓘ</span>
                   <small>{q.business}</small>
+                </div>
+                <button
+                  className="region-meaning"
+                  aria-label={`${q.label} · 영역 설명`}
+                  onClick={() => setMeaning(q.id)}
+                  title={q.note}
+                >
+                  <span>
+                    중요{" "}
+                    <b>
+                      {q.id === "future" || q.id === "focus" ? "예" : "아니오"}
+                    </b>
+                  </span>
+                  <span>
+                    긴급{" "}
+                    <b>
+                      {q.id === "focus" || q.id === "quick" ? "예" : "아니오"}
+                    </b>
+                  </span>
+                  <span className="meaning-icon" aria-hidden="true">
+                    ⓘ
+                  </span>
                 </button>
                 <div
                   className="priority-cards"
