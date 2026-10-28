@@ -1,4 +1,4 @@
-import { progressRank, type Task } from "./domain.ts";
+import { type Task } from "./domain.ts";
 export const projectKey = (name: string) =>
   name.trim().normalize("NFKC").toLocaleLowerCase("ko-KR");
 export function projectGroups(tasks: Task[], includeDeleted = false) {
@@ -25,21 +25,3 @@ export function projectGroups(tasks: Task[], includeDeleted = false) {
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "ko"));
 }
-export function scoreGroups(tasks: Task[]) {
-  const groups = new Map<string, Task[]>();
-  for (const t of tasks) {
-    const key = `${t.importance}:${t.progress || "unclassified"}`;
-    const list = groups.get(key) || [];
-    list.push(t);
-    groups.set(key, list);
-  }
-  return [...groups.values()];
-}
-
-// Center is 2.5: integer scores 1–2 stay below/left, 3–5 above/right.
-export const axisPosition = (score: number) => 5 + 18 * score;
-
-export const matrixX = (t: Task) => {
-  const rank = progressRank(t.progress);
-  return rank ? axisPosition(rank) : 6;
-};

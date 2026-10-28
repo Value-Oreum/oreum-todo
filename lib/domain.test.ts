@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   quadrant,
+  progressLabel,
+  dueSignal,
+  staleSignal,
+  quadrantSizes,
   changed,
   reviewNeeded,
   validateScores,
@@ -12,48 +16,85 @@ import {
   describeChanges,
   eventHistory,
 } from "./domain.ts";
-test("new axes classify by importance and progress, never by legacy urgency", () => {
-  assert.equal(quadrant({ importance: 3, progress: "지연" }), "focus");
-  assert.equal(quadrant({ importance: 5, progress: "유지" }), "future");
-  assert.equal(quadrant({ importance: 2, progress: "원활" }), "review");
-  assert.equal(quadrant({ importance: 2, progress: "막힘" }), "quick");
-  const legacy = { ...blank(), progress: undefined, urgency: 5 };
-  assert.equal(quadrant(legacy), "unclassified");
-  assert.equal(needsAttention(legacy), false);
-  assert.equal(progressRank("unknown"), null);
-});
-test("attention boundary is importance>=3 and delayed/blocked/unresolved; terminal/trash excluded", () => {
+test("binary priority uses urgency independently of progress and preserves legacy thresholds", () => {
   for (const importance of [1, 2, 3, 4, 5])
-    for (const stage of progressStages) {
-      const t = { ...blank(), importance, progress: stage.name };
+    for (const urgency of [1, 2, 3, 4, 5]) {
+      const t = { ...blank(), importance, urgency, progress: "이슈" as const };
       assert.equal(
-        needsAttention(t),
-        importance >= 3 && ["지연", "막힘", "미해결"].includes(stage.name),
+        quadrant(t),
+        importance >= 3
+          ? urgency >= 3
+            ? "focus"
+            : "future"
+          : urgency >= 3
+            ? "quick"
+            : "review",
       );
+      assert.equal(needsAttention(t), importance >= 3 && urgency >= 3);
+      assert.equal(needsAttention({ ...t, status: "완료" }), false);
+      assert.equal(needsAttention({ ...t, deleted: true }), false);
     }
-  for (const status of ["완료", "드롭"])
-    assert.equal(
-      needsAttention({ ...blank(), importance: 5, progress: "미해결", status }),
-      false,
-    );
-  assert.equal(
-    needsAttention({
+});
+test("legacy progress maps into three card states", () => {
+  assert.equal(progressLabel("원활"), "순항");
+  assert.equal(progressLabel("유지"), "순항");
+  assert.equal(progressLabel("막힘"), "지연/병목");
+  assert.equal(progressLabel("미해결"), "이슈");
+});
+test("D-7 KST signal and stale candidates never change data or mark finished work", () => {
+  const now = Date.parse("2026-10-28T15:00:00Z");
+  const t = {
+    ...blank(),
+    urgency: 1,
+    due: "2026-11-05",
+    updated_at: "2026-10-20T00:00:00Z",
+  };
+  assert.ok(dueSignal(t, now));
+  assert.ok(staleSignal(t, now));
+  assert.equal(dueSignal({ ...t, due: "2026-11-06" }, now), false);
+  assert.equal(dueSignal({ ...t, urgency: 5 }, now), false);
+  assert.equal(dueSignal({ ...t, status: "완료" }, now), false);
+  assert.equal(staleSignal({ ...t, progress: "이슈" }, now), false);
+  assert.equal(t.urgency, 1);
+  assert.equal(t.progress, "순항");
+});
+test("crowded quadrant grows while all regions stay accessible", () => {
+  const initial = quadrantSizes([]);
+  const crowded = quadrantSizes(
+    Array.from({ length: 50 }, () => ({
       ...blank(),
       importance: 5,
-      progress: "막힘",
-      deleted: true,
-    }),
-    false,
+      urgency: 5,
+    })),
   );
+  assert.equal(initial.top, 50);
+  assert.ok(crowded.top > initial.top);
+  assert.ok(crowded.upperLeft < 50);
+  assert.ok(crowded.top <= 70);
+  assert.ok(crowded.upperLeft >= 30);
 });
-test("progress changes flagged; time alone never marks healthy work for dropping", () => {
-  const t = { ...blank(), importance: 1, updated_at: "2020-01-01T00:00:00Z" };
-  assert.equal(reviewNeeded(t), false);
-  t.progress = "막힘";
-  assert.ok(changed(t));
-  assert.ok(reviewNeeded(t));
-  t.status = "완료";
-  assert.equal(reviewNeeded(t), false);
+test("quick completion is archived independently of parent lifecycle", () => {
+  const old = {
+    ...blank(),
+    quick_checks: [
+      { id: "c", text: "견적 회신 확인", created_at: "2026-10-28" },
+    ],
+  };
+  const next = {
+    ...old,
+    quick_checks: [
+      {
+        ...old.quick_checks[0],
+        completed_at: "2026-10-29",
+        completed_by: "동수",
+      },
+    ],
+  };
+  assert.match(
+    describeChanges(old, next).join(),
+    /즉시 확인 완료: 견적 회신 확인/,
+  );
+  assert.equal(next.status, "예정");
 });
 test("archived old/new data explains progress, handling and next check changes even with legacy generic notes", () => {
   const old = {

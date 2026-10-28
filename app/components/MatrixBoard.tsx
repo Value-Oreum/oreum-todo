@@ -1,310 +1,268 @@
 "use client";
-import { useState, useEffect, useRef, Fragment } from "react";
-import { Bell } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { GripVertical } from "lucide-react";
 import {
   Task,
   quadrants,
   quadrant,
+  quadrantSizes,
+  progressLabel,
   changed,
-  reviewNeeded,
-  progressStages,
-  progressRank,
-  needsAttention,
+  dueSignal,
+  staleSignal,
+  activeTask,
 } from "../../lib/domain";
-import { axisPosition, matrixX } from "../../lib/projects";
-import { MOBILE_QUERY } from "../hooks/useMobile";
 import { Dialog } from "./Dialog";
-import { matrixLayout } from "../../lib/matrix-layout";
 export function MatrixBoard({
   tasks,
   onOpen,
+  onMove,
+  onProgress,
 }: {
   tasks: Task[];
   onOpen: (task: Task) => void;
+  onMove: (task: Task, quadrant: string) => Promise<void>;
+  onProgress: (task: Task) => Promise<void>;
 }) {
-  const [cluster, setCluster] = useState<Task[] | null>(null),
-    [nearbySelection, setNearbySelection] = useState(false),
-    [meaning, setMeaning] = useState<string | null>(null);
-  const plotRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0, compact: false });
+  const [meaning, setMeaning] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(
+    null,
+  );
+  const [target, setTarget] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [announcement, announce] = useState("");
+  const [now, setNow] = useState(Date.now());
+  const locked = useRef(false);
   useEffect(() => {
-    const el = plotRef.current;
-    if (!el) return;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      setSize({
-        width: rect.width,
-        height: rect.height,
-        compact: matchMedia(MOBILE_QUERY).matches,
-      });
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    return () => observer.disconnect();
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(timer);
   }, []);
-  const layout = matrixLayout(tasks, size.width, size.height, size.compact);
-  function activatePoint(index: number) {
-    const item = layout[index];
-    const nearby = size.compact
-      ? layout
-          .filter(
-            (other) =>
-              Math.abs(other.point.x - item.point.x) < 44 &&
-              Math.abs(other.point.y - item.point.y) < 44,
-          )
-          .flatMap((other) => other.group)
-      : item.group;
-    if (nearby.length > item.group.length) {
-      setNearbySelection(true);
-      setCluster(nearby);
-    } else if (item.group.length > 1) {
-      setNearbySelection(false);
-      setCluster(item.group);
-    } else onOpen(item.group[0]);
+  const sizes = quadrantSizes(tasks);
+  async function move(task: Task, q: string) {
+    if (locked.current || quadrant(task) === q) return;
+    locked.current = true;
+    setSaving(task.id);
+    try {
+      await onMove(task, q);
+      announce("이동 요청 처리 완료. 오류가 있으면 상단에 표시됩니다.");
+    } finally {
+      setSaving(null);
+      locked.current = false;
+    }
   }
-
+  const regionAt = (x: number, y: number) =>
+    document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-quadrant]")
+      ?.dataset.quadrant || null;
   return (
     <>
+      <div className="priority-legend">
+        <span className="state-good">● 순항</span>
+        <span className="state-delay">● 지연/병목</span>
+        <span className="state-issue">● 이슈 · 빨간 테두리</span>
+        <span>⠿ 끌어 이동</span>
+      </div>
       <section
-        className="matrix-board"
-        aria-label="업무 매트릭스: 가로축 진행상황, 세로축 중요도"
+        className="matrix-board priority-board"
+        aria-label="우선순위 매트릭스: 가로 긴급, 세로 중요"
+        style={{ gridTemplateRows: `${sizes.top}fr ${100 - sizes.top}fr` }}
       >
-        {tasks.some((t) => !progressRank(t.progress)) && (
-          <button
-            className="unclassified-toggle"
-            onClick={() => (
-              setNearbySelection(false),
-              setCluster(tasks.filter((t) => !progressRank(t.progress)))
-            )}
+        {[quadrants.slice(0, 2), quadrants.slice(2)].map((row, r) => (
+          <div
+            className="priority-row"
+            key={r}
+            style={{
+              gridTemplateColumns: `${r === 0 ? sizes.upperLeft : sizes.lowerLeft}fr ${100 - (r === 0 ? sizes.upperLeft : sizes.lowerLeft)}fr`,
+            }}
           >
-            미분류 {tasks.filter((t) => !progressRank(t.progress)).length} ·
-            설정하기
-          </button>
-        )}
-        <div className="quadrant-backgrounds">
-          {quadrants.map((q, i) => (
-            <article
-              key={q.id}
-              className={`map-quadrant ${q.color} ${q.id === "focus" ? "focus-quadrant" : ""}`}
-              aria-label={q.title}
-            >
-              <button
-                className="quadrant-caption"
-                onClick={() => setMeaning(q.id)}
-                title={q.note}
+            {row.map((q) => (
+              <article
+                key={q.id}
+                data-quadrant={q.id}
+                className={`priority-region ${q.color} ${target === q.id ? "drop-target" : ""}`}
               >
-                <span>
-                  {["Ⅱ", "Ⅰ", "Ⅲ", "Ⅳ"][i]} · {q.title}
-                </span>
-                <small>{q.business} ⓘ</small>
-                <b>{tasks.filter((t) => quadrant(t) === q.id).length}</b>
-              </button>
-            </article>
-          ))}
-        </div>
-        <div className="plot" ref={plotRef} aria-label="업무 위치">
-          <div className="cross x-cross" />
-          <div className="cross y-cross" />
-          <span className="axis-label y-label">중요도 ↑</span>
-          <span className="axis-label x-label">진행상황 →</span>
-
-          {progressStages.map((stage, index) => (
-            <span
-              key={stage.name}
-              className="axis-tick x-tick progress-tick"
-              title={stage.description}
-              style={{ left: `${axisPosition(index + 1)}%` }}
-            >
-              {stage.name}
-            </span>
-          ))}
-          {tasks.some((t) => !progressRank(t.progress)) && (
-            <span
-              className="axis-tick x-tick progress-tick"
-              style={{ left: "6%" }}
-            >
-              미분류
-            </span>
-          )}
-          {[1, 2, 3, 4, 5].map((n) => (
-            <span
-              key={`y${n}`}
-              className="axis-tick y-tick"
-              style={{ top: `${100 - axisPosition(n)}%` }}
-            >
-              {n}
-            </span>
-          ))}
-          <svg className="node-connectors" aria-hidden="true">
-            {layout
-              .filter((item) => item.label)
-              .map(({ group, point, label }) => (
-                <line
-                  key={group[0].id}
-                  x1={point.x}
-                  y1={point.y}
-                  x2={Math.max(
-                    label!.x,
-                    Math.min(point.x, label!.x + label!.width),
-                  )}
-                  y2={Math.max(
-                    label!.y,
-                    Math.min(point.y, label!.y + label!.height),
-                  )}
-                />
-              ))}
-          </svg>
-          {layout.map(({ group, point, label }, index) => {
-            const t = group[0];
-            return (
-              <Fragment key={`${t.importance}:${t.progress || "unclassified"}`}>
                 <button
-                  data-node-key={t.id}
-                  title={group.map((task) => task.title).join(" · ")}
-                  className={`task-node ${label ? "" : "label-hidden"} ${quadrants.find((q) => q.id === quadrant(t))?.color || "unclassified"} ${group.some(needsAttention) ? "attention-node" : ""}`}
-                  style={{
-                    left: `${matrixX(t)}%`,
-                    top: `${100 - axisPosition(t.importance)}%`,
-                  }}
-                  onClick={() => activatePoint(index)}
-                  aria-label={
-                    group.length > 1
-                      ? `${t.title} 외 ${group.length - 1}개 업무, 중요도 ${t.importance}, 진행상황 ${t.progress || "미분류"}`
-                      : t.title
-                  }
+                  className="region-heading"
+                  onClick={() => setMeaning(q.id)}
+                  title={q.note}
                 >
-                  <span className="node-dot" />
-                  {group.length > 1 && (
-                    <span className="node-count">{group.length}</span>
-                  )}
-                  {group.some(changed) && (
-                    <span
-                      className="node-change"
-                      title="등록 후 분류 기준 변경"
-                      aria-label="기준 변경"
-                    >
-                      ↔
-                    </span>
-                  )}
-                  {group.some((t) => reviewNeeded(t)) && (
-                    <span
-                      className="node-review"
-                      title="14일 이상 정체 · 지속 여부 검토"
-                    >
-                      !
-                    </span>
-                  )}
+                  <strong>
+                    {q.title}{" "}
+                    <b>{tasks.filter((t) => quadrant(t) === q.id).length}</b>
+                  </strong>
+                  <span>{q.label} ⓘ</span>
+                  <small>{q.business}</small>
                 </button>
-                {label && (
-                  <button
-                    data-node-key={t.id}
-                    className={`task-callout ${quadrants.find((q) => q.id === quadrant(t))?.color || "unclassified"} ${group.some(needsAttention) ? "attention-node" : ""}`}
-                    style={{
-                      left: label.x,
-                      top: label.y,
-                      width: label.width,
-                      height: label.height,
-                    }}
-                    onClick={() =>
-                      group.length > 1
-                        ? (setNearbySelection(false), setCluster(group))
-                        : onOpen(t)
-                    }
-                    title={group.map((task) => task.title).join(" · ")}
-                  >
-                    <span
-                      className="node-card"
-                      style={{
-                        position: "static",
-                        width: "100%",
-                        height: "100%",
-                      }}
-                    >
-                      <div className="node-title">
-                        <span
-                          className="processing-mark"
-                          title={t.processing_type || "처리 유형 미분류"}
-                          aria-label={t.processing_type || "처리 유형 미분류"}
+                <div
+                  className="priority-cards"
+                  tabIndex={0}
+                  aria-label={`${q.title} 업무 목록`}
+                >
+                  {tasks
+                    .filter((t) => quadrant(t) === q.id)
+                    .map((t) => {
+                      const progress = progressLabel(t.progress);
+                      return (
+                        <div
+                          key={t.id}
+                          data-task-id={t.id}
+                          className={`priority-card ${progress === "이슈" ? "issue-card" : progress === "지연/병목" ? "delay-card" : progress === "순항" ? "good-card" : "unknown-card"} ${drag?.id === t.id ? "dragging-card" : ""}`}
                         >
-                          {t.processing_type === "추적 관리"
-                            ? "↻"
-                            : t.processing_type === "바로 처리"
-                              ? "⚡"
-                              : "?"}
-                        </span>
-                        <h3>{t.title}</h3>
-                      </div>
-                      <span className="node-meta">
-                        {group.length > 1
-                          ? `${group.length}개 업무 · 펼치기`
-                          : `${t.progress || "미분류"} · ${t.processing_type || "유형 미분류"}`}
-                        {t.reminder && <Bell size={12} />}{" "}
-                        {changed(t) && (
-                          <span title="최초 등록 후 기준 변경">↔</span>
-                        )}
-                        {reviewNeeded(t) && (
-                          <span title="지속 여부 검토">!</span>
-                        )}
-                      </span>
-                    </span>
-                  </button>
-                )}
-              </Fragment>
-            );
-          })}
-          {!tasks.length && (
-            <div className="empty-map">
-              등록된 업무가 없어요.
-              <br />
-              상단의 업무 등록으로 시작하세요.
-            </div>
-          )}
-        </div>
+                          <div className="priority-card-top">
+                            <button
+                              className="drag-handle"
+                              aria-label={`${t.title} 끌어 이동`}
+                              disabled={!!saving || !activeTask(t)}
+                              onPointerDown={(e) => {
+                                if (e.button !== 0 || locked.current) return;
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                                setDrag({
+                                  id: t.id,
+                                  x: e.clientX,
+                                  y: e.clientY,
+                                });
+                                setTarget(q.id);
+                              }}
+                              onPointerMove={(e) => {
+                                if (
+                                  !e.currentTarget.hasPointerCapture(
+                                    e.pointerId,
+                                  )
+                                )
+                                  return;
+                                setDrag({
+                                  id: t.id,
+                                  x: e.clientX,
+                                  y: e.clientY,
+                                });
+                                setTarget(regionAt(e.clientX, e.clientY));
+                              }}
+                              onPointerUp={(e) => {
+                                if (
+                                  !e.currentTarget.hasPointerCapture(
+                                    e.pointerId,
+                                  )
+                                )
+                                  return;
+                                const destination = regionAt(
+                                  e.clientX,
+                                  e.clientY,
+                                );
+                                e.currentTarget.releasePointerCapture(
+                                  e.pointerId,
+                                );
+                                setDrag(null);
+                                setTarget(null);
+                                if (destination) void move(t, destination);
+                              }}
+                              onPointerCancel={() => {
+                                setDrag(null);
+                                setTarget(null);
+                              }}
+                              onLostPointerCapture={() => {
+                                setDrag(null);
+                                setTarget(null);
+                              }}
+                            >
+                              <GripVertical size={18} />
+                            </button>
+                            <button
+                              className="priority-open"
+                              onClick={() => onOpen(t)}
+                            >
+                              <strong>{t.title}</strong>
+                              <small>{t.company || "내부 업무"}</small>
+                            </button>
+                          </div>
+                          <div className="priority-card-meta">
+                            <span>● {progress}</span>
+                            {changed(t) && (
+                              <span title="최초 등록 후 기준 변경">
+                                ↔ 변경
+                              </span>
+                            )}
+                          </div>
+                          {dueSignal(t, now) && (
+                            <button
+                              className="watch-signal"
+                              disabled={!!saving}
+                              onClick={() =>
+                                void move(
+                                  t,
+                                  t.importance >= 3 ? "focus" : "quick",
+                                )
+                              }
+                            >
+                              마감 {t.due} · 긴급 칸으로 옮길까요? →
+                            </button>
+                          )}
+                          {staleSignal(t, now) && (
+                            <button
+                              className="watch-signal"
+                              disabled={!!saving}
+                              onClick={async () => {
+                                if (locked.current) return;
+                                locked.current = true;
+                                setSaving(t.id);
+                                try {
+                                  await onProgress(t);
+                                } finally {
+                                  locked.current = false;
+                                  setSaving(null);
+                                }
+                              }}
+                            >
+                              7일 미갱신 · 지연/병목 후보 확인
+                            </button>
+                          )}
+                          {activeTask(t) && (
+                            <select
+                              aria-label={`${t.title} 사분면 이동`}
+                              value={q.id}
+                              disabled={!!saving}
+                              onChange={(e) => void move(t, e.target.value)}
+                            >
+                              {quadrants.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      );
+                    })}
+                  {!tasks.some((t) => quadrant(t) === q.id) && (
+                    <p className="region-empty">카드를 이곳으로 옮겨보세요</p>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        ))}
       </section>
-      {cluster && (
-        <Dialog
-          className="cluster-dialog"
-          label={nearbySelection ? "가까운 업무 선택" : "같은 위치의 업무"}
-          onClose={() => setCluster(null)}
+      {drag && (
+        <div
+          className="drag-preview"
+          style={{ left: drag.x + 12, top: drag.y + 12 }}
         >
-          <h2>
-            {nearbySelection ? "가까운 업무" : "같은 위치의 업무"}{" "}
-            {cluster.length}개
-          </h2>
-          <p>
-            {nearbySelection
-              ? "점들이 가까이 있어요. 열고 싶은 업무를 선택해주세요."
-              : `중요도 ${cluster[0].importance} · 진행상황 ${cluster[0].progress || "미분류"}`}
-          </p>
-          {cluster.map((t) => (
-            <button
-              className="cluster-task"
-              key={t.id}
-              onClick={() => {
-                setCluster(null);
-                onOpen(t);
-              }}
-            >
-              <strong>{t.title}</strong>
-              <span>
-                {t.company || "내부 업무"} · {t.progress || "미분류"} ·{" "}
-                {t.processing_type || "유형 미분류"} · {t.status}
-                {changed(t) && " · 기준 변경"}
-              </span>
-            </button>
-          ))}
-        </Dialog>
+          놓아서 우선순위 변경
+        </div>
       )}
+      <span className="sr-only" role="status">
+        {announcement}
+      </span>
       {meaning && (
         <Dialog
           className="cluster-dialog"
-          label="사분면의 사업적 의미"
+          label="사분면 의미"
           onClose={() => setMeaning(null)}
         >
           <h2>{quadrants.find((q) => q.id === meaning)?.title}</h2>
-          <h3>{quadrants.find((q) => q.id === meaning)?.business}</h3>
           <p>{quadrants.find((q) => q.id === meaning)?.note}</p>
+          <p>
+            업무 수에 따라 공간이 늘어납니다. 넘치는 카드는 각 영역 안에서
+            스크롤하세요.
+          </p>
         </Dialog>
       )}
     </>

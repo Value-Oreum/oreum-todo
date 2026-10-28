@@ -1,20 +1,41 @@
 export const progressStages = [
-  { name: "원활", description: "계획대로 진행되고 있습니다." },
   {
-    name: "유지",
-    description: "합의된 일정에 따라 경과·회신을 확인하고 있습니다.",
-  },
-  { name: "지연", description: "약속한 일정이 지나 후속 조치가 필요합니다." },
-  {
-    name: "막힘",
-    description: "결정·지원·외부 조치 없이는 진행하기 어렵습니다.",
+    name: "순항",
+    description: "계획대로 진행하거나 합의된 일정에 따라 확인 중입니다.",
   },
   {
-    name: "미해결",
-    description: "조치 후에도 문제가 남아 해결 방향을 다시 정해야 합니다.",
+    name: "지연/병목",
+    description: "일정이 늦어지거나 결정·지원이 필요합니다.",
+  },
+  {
+    name: "이슈",
+    description: "해결해야 할 문제가 있어 먼저 살펴봐야 합니다.",
   },
 ] as const;
-export type Progress = (typeof progressStages)[number]["name"];
+export type Progress =
+  | (typeof progressStages)[number]["name"]
+  | "원활"
+  | "유지"
+  | "지연"
+  | "막힘"
+  | "미해결";
+export function progressLabel(value: unknown): string {
+  if (value === "원활" || value === "유지") return "순항";
+  if (value === "지연" || value === "막힘") return "지연/병목";
+  if (value === "미해결") return "이슈";
+  return progressStages.some((s) => s.name === value)
+    ? String(value)
+    : "미분류";
+}
+export type QuickCheck = {
+  id: string;
+  text: string;
+  created_at: string;
+  completed_at?: string;
+  completed_by?: string;
+  summary?: string;
+  ai_status?: "pending" | "done" | "fallback";
+};
 export const processingTypes = ["바로 처리", "추적 관리"] as const;
 export type ProcessingType = (typeof processingTypes)[number];
 export const effortOptions = [
@@ -32,6 +53,7 @@ export type Scores = {
 };
 export type History = { at: string; actor: string; text: string };
 export type Task = Scores & {
+  quick_checks?: QuickCheck[];
   progress?: Progress | null;
   initial_progress?: Progress | null;
   processing_type?: ProcessingType;
@@ -60,62 +82,85 @@ export const members = [
 export const quadrants = [
   {
     id: "future",
-    title: "흐름을 이어갈 일",
-    label: "중요도 높음 · 원활/유지",
-    business: "핵심 업무 · 꾸준한 지원",
-    note: "중요도가 높고 흐름이 안정적인 업무입니다. 계획과 고객 관계를 꾸준히 살피며 지원하세요.",
+    title: "계획하고 키울 일",
+    label: "중요 예 · 긴급 아니오",
+    business: "미래 성장 · 미리 투자",
+    note: "당장 급하지 않아도 회사의 미래를 만드는 일입니다. 실행 시간을 확보하고 꾸준히 진척시키세요.",
     color: "mint",
   },
   {
     id: "focus",
-    title: "집중해서 풀어갈 일",
-    label: "중요도 높음 · 지연/막힘/미해결",
-    business: "중요도 3~5 + 지연·막힘·미해결",
-    note: "집중 관리 기준: 중요도 3~5점이며 진행상황이 지연·막힘·미해결인 미완료 업무입니다. 필요한 결정·지원·후속 대응을 확인하세요. 점과 테두리를 강조합니다.",
+    title: "먼저 집중할 일",
+    label: "중요 예 · 긴급 예",
+    business: "핵심 성과 · 즉시 집중",
+    note: "중요하고 긴급한 업무·프로젝트입니다. 담당자와 다음 행동을 정하고 먼저 자원을 배분하세요. 오늘의 단순 확인·회신은 즉시 확인 목록에서 관리합니다.",
     color: "peach",
   },
   {
     id: "review",
-    title: "안정적으로 유지할 일",
-    label: "중요도 낮음 · 원활/유지",
-    business: "반복 운영 · 표준화",
-    note: "흐름이 안정적인 보조 업무입니다. 적정 수준으로 유지하고 표준화·자동화할 부분을 살펴보세요.",
+    title: "줄이거나 재검토할 일",
+    label: "중요 아니오 · 긴급 아니오",
+    business: "범위 축소 · 지속 여부 검토",
+    note: "우선순위가 낮은 업무입니다. 유지할 가치와 투입 시간을 비교해 간소화·보류·종료를 판단하세요. 자동으로 드롭하지 않습니다.",
     color: "lavender",
   },
   {
     id: "quick",
-    title: "방식을 점검할 일",
-    label: "중요도 낮음 · 지연/막힘/미해결",
-    business: "관리 부담 · 지속 여부 검토",
-    note: "중요도에 비해 진행이 어려운 업무입니다. 범위·방식·자원 배분을 점검하고 필요하면 보류나 종료를 검토하세요. 자동으로 드롭하지 않습니다.",
+    title: "위임하고 정리할 일",
+    label: "중요 아니오 · 긴급 예",
+    business: "빠른 대응 · 위임",
+    note: "기한은 가깝지만 핵심 영향은 작은 일입니다. 위임하거나 범위를 줄여 중요한 일의 시간을 확보하세요.",
     color: "butter",
   },
 ];
 export function progressRank(value: unknown) {
-  const index = progressStages.findIndex((stage) => stage.name === value);
+  const index = progressStages.findIndex(
+    (stage) => stage.name === progressLabel(value),
+  );
   return index < 0 ? null : index + 1;
 }
-export function quadrant(t: {
-  importance: number;
-  progress?: Progress | null;
-}) {
-  const rank = progressRank(t.progress);
-  if (!rank) return "unclassified";
+export function quadrant(t: { importance: number; urgency: number }) {
   return t.importance >= 3
-    ? rank >= 3
+    ? t.urgency >= 3
       ? "focus"
       : "future"
-    : rank >= 3
+    : t.urgency >= 3
       ? "quick"
       : "review";
 }
+export const activeTask = (t: Task) =>
+  !t.deleted && !["완료", "드롭"].includes(t.status);
 export function needsAttention(t: Task) {
+  return activeTask(t) && quadrant(t) === "focus";
+}
+export function dueSignal(t: Task, now = Date.now()) {
+  if (!activeTask(t) || t.urgency >= 3 || !/^\d{4}-\d{2}-\d{2}$/.test(t.due))
+    return false;
+  const today = new Date(now + 9 * 3600000).toISOString().slice(0, 10);
+  const days = (Date.parse(t.due) - Date.parse(today)) / 86400000;
+  return Number.isFinite(days) && days <= 7;
+}
+export function staleSignal(t: Task, now = Date.now()) {
   return (
-    !t.deleted &&
-    !["완료", "드롭"].includes(t.status) &&
-    t.importance >= 3 &&
-    (progressRank(t.progress) || 0) >= 3
+    activeTask(t) &&
+    progressLabel(t.progress) === "순항" &&
+    now - Date.parse(t.updated_at) >= 7 * 86400000
   );
+}
+// Bounded weights keep all four regions visible, even when one region dominates.
+export function quadrantSizes(tasks: Task[]) {
+  const weight = (id: string) =>
+    Math.sqrt(tasks.filter((t) => quadrant(t) === id).length + 1);
+  const split = (a: number, b: number) =>
+    Math.max(30, Math.min(70, (100 * a) / (a + b)));
+  return {
+    top: split(
+      weight("future") + weight("focus"),
+      weight("review") + weight("quick"),
+    ),
+    upperLeft: split(weight("future"), weight("focus")),
+    lowerLeft: split(weight("review"), weight("quick")),
+  };
 }
 export function changed(t: Task) {
   return (
@@ -126,22 +171,25 @@ export function changed(t: Task) {
 }
 export function reviewNeeded(t: Task, now = Date.now()) {
   return (
-    quadrant(t) === "quick" &&
-    !["완료", "드롭"].includes(t.status) &&
+    activeTask(t) &&
+    quadrant(t) === "review" &&
     now - Date.parse(t.updated_at) >= 14 * 86400000
   );
 }
 export function describeChanges(old: Task, next: Task) {
   const changes: string[] = [];
   for (const [key, label] of [
-    ["importance", "중요도"],
+    ["importance", "중요"],
+    ["urgency", "긴급"],
     ["progress", "진행상황"],
     ["processing_type", "처리 유형"],
     ["effort", "예상시간"],
     ["status", "업무 상태"],
   ] as const) {
     if (old[key] !== next[key])
-      changes.push(`${label} ${old[key] ?? "미분류"}→${next[key] ?? "미분류"}`);
+      changes.push(
+        `${label} ${key === "importance" || key === "urgency" ? (old[key] >= 3 ? "예" : "아니오") : (old[key] ?? "미분류")}→${key === "importance" || key === "urgency" ? (next[key] >= 3 ? "예" : "아니오") : (next[key] ?? "미분류")}`,
+      );
   }
   if (
     old.reminder_at !== next.reminder_at &&
@@ -153,6 +201,14 @@ export function describeChanges(old: Task, next: Task) {
     );
   if (old.reminder !== next.reminder)
     changes.push(`이메일 알림 ${next.reminder ? "켜짐" : "꺼짐"}`);
+  for (const check of next.quick_checks || []) {
+    const before = old.quick_checks?.find((c) => c.id === check.id);
+    if (!before) changes.push(`즉시 확인 추가: ${check.text}`);
+    else if (!before.completed_at && check.completed_at)
+      changes.push(`즉시 확인 완료: ${check.text}`);
+    else if (check.summary && check.summary !== before.summary)
+      changes.push(`AI 완료 정리: ${check.summary} (원문: ${check.text})`);
+  }
   return changes;
 }
 export function formatCheckDate(value: string) {
@@ -183,8 +239,8 @@ export function validateScores(t: Scores) {
 export function blank(): Task {
   return {
     id: crypto.randomUUID(),
-    progress: "원활",
-    initial_progress: "원활",
+    progress: "순항",
+    initial_progress: "순항",
     processing_type: "바로 처리",
     effort: "미정",
     title: "",
@@ -193,10 +249,10 @@ export function blank(): Task {
     status: "예정",
     description: "",
     due: "",
-    importance: 3,
-    urgency: 2,
+    importance: 5,
+    urgency: 1,
     difficulty: 2,
-    initial: { importance: 3, urgency: 2, difficulty: 2 },
+    initial: { importance: 5, urgency: 1, difficulty: 2 },
     history: [],
     updated_at: new Date().toISOString(),
     deleted: false,
@@ -219,8 +275,8 @@ export function samples(): Task[] {
     company: String(a[1]),
     importance: Number(a[3]),
     urgency: Number(a[4]),
-    progress: progressStages[Number(a[4]) - 1].name,
-    initial_progress: progressStages[Number(a[4]) - 1].name,
+    progress: progressStages[i % 3].name,
+    initial_progress: progressStages[i % 3].name,
     processing_type: i % 2 ? "추적 관리" : "바로 처리",
     reminder_at: i % 2 ? new Date(Date.now() + 86400000).toISOString() : "",
     difficulty: (i % 3) + 1,

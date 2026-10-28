@@ -115,6 +115,47 @@ const assert = require("node:assert/strict");
   assert.match(detail.text, /원활→막힘/);
   assert.match(detail.text, /추적 관리→바로 처리/);
   assert.match(detail.text, /결정 필요/);
+  const binary = {
+    ...events[0].new_data,
+    importance: 1,
+    urgency: 5,
+    quick_checks: [
+      {
+        id: "check1",
+        text: "회신 확인",
+        created_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        completed_by: "eastsea.chae@gmail.com",
+      },
+    ],
+    history: [
+      {
+        at: new Date().toISOString(),
+        actor: "forged",
+        text: "우선순위 변경 · 사용자 판단",
+      },
+    ],
+  };
+  await db.query(
+    "update tasks set data=$1,updated_at=clock_timestamp()+interval '1 second' where id=$2",
+    [JSON.stringify(binary), t.id],
+  );
+  const binaryEvents = (
+    await db.query(
+      "select at,old_data,new_data from task_events where task_id=$1 order by id desc limit 1",
+      [t.id],
+    )
+  ).rows;
+  assert.equal(binaryEvents[0].new_data.initial.importance, 4);
+  assert.equal(binaryEvents[0].new_data.importance, 1);
+  assert.equal(binaryEvents[0].new_data.quick_checks[0].text, "회신 확인");
+  assert.equal(
+    binaryEvents[0].new_data.history.at(-1).actor,
+    "eastsea.chae@gmail.com",
+  );
+  console.log(
+    "PASS: binary moves preserve original scores and quick-check records on existing schema",
+  );
   await db.exec("reset role");
   for (let i = 0; i < 20; i++)
     assert.equal(

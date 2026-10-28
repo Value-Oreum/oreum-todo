@@ -6,10 +6,10 @@ const draft = {
   company: "고객사",
   description: "계약 조건 확인 필요",
   due: "2026-11-01",
-  importance: 4,
-  progress: "지연",
+  importance: 5,
+  progress: "지연/병목",
   processing_type: "추적 관리",
-  urgency: 2,
+  urgency: 1,
   difficulty: 2,
 };
 const response = (input: unknown, stop_reason = "tool_use") => ({

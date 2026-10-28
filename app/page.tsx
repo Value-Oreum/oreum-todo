@@ -31,6 +31,8 @@ import {
   members,
   progressStages,
   progressRank,
+  progressLabel,
+  type QuickCheck,
   processingTypes,
   effortOptions,
   needsAttention,
@@ -41,6 +43,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { Dialog } from "./components/Dialog";
 import { useMobile } from "./hooks/useMobile";
+import { QuickChecks } from "./components/QuickChecks";
 import { MatrixBoard } from "./components/MatrixBoard";
 import { ProjectFlow } from "./components/ProjectFlow";
 import { projectGroups, projectKey } from "../lib/projects";
@@ -53,6 +56,13 @@ const names: Record<string, string> = {
 export default function Home() {
   const isMobile = useMobile();
   const [entered, enter] = useState(false),
+    [weekly, setWeekly] = useState<{
+      summary: string;
+      sources: string[];
+      partial: boolean;
+    } | null>(null),
+    [weeklyBusy, setWeeklyBusy] = useState(false),
+    [quickOpen, setQuickOpen] = useState(false),
     [flowOpen, setFlowOpen] = useState(false),
     [mobileList, setMobileList] = useState(false),
     [filtersOpen, setFiltersOpen] = useState(false),
@@ -194,7 +204,7 @@ export default function Home() {
         localStorage.setItem("oreum-demo", JSON.stringify(next));
         return next;
       });
-      return true;
+      return t;
     }
     if (!supabase) return false;
     const existing = tasks.find((x) => x.id === t.id);
@@ -221,16 +231,12 @@ export default function Home() {
         ? old.map((x) => (x.id === t.id ? saved : x))
         : [...old, saved],
     );
-    return true;
+    return saved;
   }
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!selected || busy) return;
     const old = tasks.find((t) => t.id === selected.id);
-    const criterionChanged =
-      !!old &&
-      (old.importance !== selected.importance ||
-        (!!progressRank(old.progress) && old.progress !== selected.progress));
     if (!progressRank(selected.progress)) {
       setError("진행상황을 선택해주세요.");
       return;
@@ -246,10 +252,6 @@ export default function Home() {
       setError("추적 관리 업무의 다음 확인일을 입력해주세요.");
       return;
     }
-    if (criterionChanged && !reason.trim()) {
-      setError("중요도나 진행상황이 바뀐 이유를 짧게 남겨주세요.");
-      return;
-    }
     setBusy(true);
     const at = new Date().toISOString();
     const t = {
@@ -261,7 +263,7 @@ export default function Home() {
       updated_at: at,
       initial_progress:
         old?.initial_progress || old?.progress || selected.progress,
-      change_reason: reason.trim(),
+      change_reason: reason.trim() || "사용자 우선순위·상태 판단",
       initial: old?.initial || {
         importance: selected.importance,
         urgency: selected.urgency,
@@ -273,7 +275,7 @@ export default function Home() {
           at,
           actor: email,
           text: old
-            ? `${describeChanges(old, selected).join(", ") || "업무 내용 수정"}${reason.trim() ? " · 사유: " + reason.trim() : ""}`
+            ? `${describeChanges(old, selected).join(", ") || "업무 내용 수정"}${reason.trim() ? " · 사유: " + reason.trim() : " · 사용자 판단"}`
             : "업무 등록",
         },
       ],
@@ -283,6 +285,143 @@ export default function Home() {
       if (selectedId.current === t.id) setReason("");
     }
     setBusy(false);
+  }
+  async function updateJudgment(t: Task, patch: Partial<Task>, note: string) {
+    const at = new Date().toISOString();
+    return persist(
+      {
+        ...t,
+        ...patch,
+        updated_at: at,
+        change_reason: note,
+        history: [
+          ...t.history,
+          {
+            at,
+            actor: email,
+            text: `${describeChanges(t, { ...t, ...patch }).join(", ")} · ${note}`,
+          },
+        ],
+      },
+      t.updated_at,
+    );
+  }
+  async function moveTask(t: Task, destination: string) {
+    const important = ["future", "focus"].includes(destination);
+    const urgent = ["focus", "quick"].includes(destination);
+    await updateJudgment(
+      t,
+      { importance: important ? 5 : 1, urgency: urgent ? 5 : 1 },
+      "사용자가 사분면 이동으로 우선순위 판단",
+    );
+  }
+  async function addCheck(t: Task, text: string) {
+    if ((t.quick_checks || []).length >= 500) {
+      setError(
+        "이 업무의 확인 기록이 500개에 도달했습니다. 후속 업무를 만들어 연결해주세요.",
+      );
+      return false;
+    }
+    return !!(await updateJudgment(
+      t,
+      {
+        quick_checks: [
+          ...(t.quick_checks || []),
+          {
+            id: crypto.randomUUID(),
+            text,
+            created_at: new Date().toISOString(),
+          },
+        ],
+      },
+      "즉시 확인 등록",
+    ));
+  }
+  async function completeCheck(t: Task, item: QuickCheck) {
+    const saved = await updateJudgment(
+      t,
+      {
+        quick_checks: (t.quick_checks || []).map((c) =>
+          c.id === item.id
+            ? {
+                ...c,
+                completed_at: new Date().toISOString(),
+                completed_by: email,
+                ai_status: demo ? "fallback" : "pending",
+              }
+            : c,
+        ),
+      },
+      "즉시 확인 완료",
+    );
+    if (!saved || demo) return;
+    try {
+      const token = (await supabase?.auth.getSession())?.data.session
+        ?.access_token;
+      const response = await fetch("/api/check-summary", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ taskId: t.id, checkId: item.id }),
+        signal: AbortSignal.timeout(25000),
+      });
+      if (!response.ok)
+        throw Error(
+          "AI 정리를 건너뛰었습니다. 완료 원문은 업무 기록에 저장되었습니다.",
+        );
+      const { summary } = await response.json();
+      // Re-read to preserve changes made by a teammate while AI was running.
+      const fresh = await supabase!
+        .from("tasks")
+        .select("data")
+        .eq("id", t.id)
+        .single();
+      if (fresh.error)
+        throw Error("완료 원문은 저장되었습니다. AI 기록 저장을 확인해주세요.");
+      const current = fresh.data.data as Task;
+      await updateJudgment(
+        current,
+        {
+          quick_checks: (current.quick_checks || []).map((c) =>
+            c.id === item.id ? { ...c, summary, ai_status: "done" } : c,
+          ),
+        },
+        "AI 완료 기록 정리 · 원문 보존",
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function summarizeWeek() {
+    if (weeklyBusy) return;
+    if (demo) {
+      setWeekly({
+        summary:
+          "실제 로그인과 Claude 연결 후 최근 7일 완료 기록을 요약합니다. 자동 호출 없이 버튼을 눌렀을 때만 실행합니다.",
+        sources: [],
+        partial: false,
+      });
+      return;
+    }
+    setWeeklyBusy(true);
+    try {
+      const token = (await supabase?.auth.getSession())?.data.session
+        ?.access_token;
+      const response = await fetch("/api/weekly-summary", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      setWeekly(data);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setWeeklyBusy(false);
+    }
   }
   async function remove(t: Task) {
     if (
@@ -332,7 +471,7 @@ export default function Home() {
       const data = await r.json();
       if (!r.ok) throw Error(data.error);
       if (!controller.signal.aborted) {
-        select({ ...blank(), ...data, owner: newOwner });
+        select((current) => (current ? { ...current, ...data } : null));
         setAiText("");
         setAiTextOpen(false);
       }
@@ -363,7 +502,12 @@ export default function Home() {
   function openTask(t: Task) {
     setAiText("");
     setAiTextOpen(false);
-    select(structuredClone(t));
+    select({
+      ...structuredClone(t),
+      progress: progressRank(t.progress)
+        ? (progressLabel(t.progress) as Task["progress"])
+        : null,
+    });
     setReason("");
     setFlowOpen(false);
   }
@@ -457,24 +601,23 @@ export default function Home() {
             </button>
           ))}
         </nav>
-        <div className="sidebar-note">
-          <Image
-            src="/oreum-wave.png"
-            alt="응원하는 오름"
-            width={85}
-            height={73}
+        {!isMobile && (
+          <button
+            className="weekly-toggle"
+            disabled={weeklyBusy}
+            onClick={() => void summarizeWeek()}
+          >
+            {weeklyBusy ? "요약 중…" : "✦ 최근 7일 완료 요약"}
+          </button>
+        )}
+        {!isMobile && (
+          <QuickChecks
+            tasks={tasks}
+            onAdd={addCheck}
+            onComplete={completeCheck}
+            onOpen={openTask}
           />
-          <strong>
-            오늘의 작은 진전이
-            <br />
-            내일의 오름을 만들어요.
-          </strong>
-          <p>
-            일을 위한 일은 줄이고,
-            <br />
-            중요한 일에 집중해요.
-          </p>
-        </div>
+        )}
         <button
           className="profile"
           aria-label="멤버 및 알림 설정"
@@ -583,7 +726,7 @@ export default function Home() {
               className="focus-toggle"
               aria-pressed={focusOnly}
               onClick={() => setFocusOnly(!focusOnly)}
-              title="중요도 3~5 + 지연·막힘·미해결인 미완료 업무"
+              title="중요 예 + 긴급 예인 미완료 업무"
             >
               집중 관리 {tasks.filter(needsAttention).length}
             </button>
@@ -630,7 +773,23 @@ export default function Home() {
         <div
           className={`board-content ${mobileList ? "show-mobile-list" : ""}`}
         >
-          <MatrixBoard tasks={visible} onOpen={openTask} />
+          <MatrixBoard
+            tasks={visible}
+            onOpen={openTask}
+            onMove={moveTask}
+            onProgress={async (t) => {
+              if (
+                confirm(
+                  "진행상황을 지연/병목으로 바꿀까요? 업데이트가 없다는 이유만으로 자동 변경하지 않습니다.",
+                )
+              )
+                await updateJudgment(
+                  t,
+                  { progress: "지연/병목" },
+                  "7일 미갱신 후보를 사용자가 확인",
+                );
+            }}
+          />
           <section className="mobile-task-list" aria-label="업무 목록">
             {visible.length ? (
               visible.map((t) => (
@@ -644,8 +803,11 @@ export default function Home() {
                     {t.company || "내부 업무"} · {names[t.owner] || t.owner}
                   </span>
                   <span className="mobile-task-badges">
-                    <b>{t.progress || "진행상황 미분류"}</b>
-                    <b>중요도 {t.importance}</b>
+                    <b>{progressLabel(t.progress)}</b>
+                    <b>
+                      중요 {t.importance >= 3 ? "예" : "아니오"} · 긴급{" "}
+                      {t.urgency >= 3 ? "예" : "아니오"}
+                    </b>
                     <b>{t.processing_type || "유형 미분류"}</b>
                     {needsAttention(t) && (
                       <b className="attention-chip">집중 관리</b>
@@ -667,9 +829,75 @@ export default function Home() {
               ? "예시 데이터 · 실제 팀 동기화 아님"
               : "팀 변경 사항 실시간 반영"}
           </span>
-          <span>⚡ 바로 처리 · ↻ 추적 관리 · 밀집된 업무는 점을 눌러 확인</span>
+          <span>위치 = 중요·긴급 판단 · 색 = 진행상황</span>
         </footer>
       </main>
+      {isMobile && (
+        <button
+          className="mobile-quick-toggle"
+          onClick={() => setQuickOpen(true)}
+        >
+          즉시 확인{" "}
+          {
+            tasks
+              .filter((t) => !t.deleted)
+              .flatMap((t) =>
+                (t.quick_checks || []).filter((c) => !c.completed_at),
+              ).length
+          }
+        </button>
+      )}
+      {weekly && (
+        <Dialog
+          className="drawer"
+          label="최근 7일 완료 요약"
+          onClose={() => setWeekly(null)}
+        >
+          <h2>최근 7일 완료 요약</h2>
+          <p style={{ whiteSpace: "pre-wrap" }}>{weekly.summary}</p>
+          {weekly.partial && (
+            <p>
+              최근 변경 200건 중 완료 항목 최대 30개를 요약한 일부 결과입니다.
+            </p>
+          )}
+          <details>
+            <summary>요약에 사용한 원문 {weekly.sources.length}개</summary>
+            {weekly.sources.map((source, i) => (
+              <p key={i}>{source}</p>
+            ))}
+          </details>
+          <small>
+            AI 요약입니다. 실제 결과는 원문 기록과 함께 확인해주세요.
+          </small>
+        </Dialog>
+      )}
+      {quickOpen && (
+        <Dialog
+          className="drawer quick-dialog"
+          label="즉시 확인"
+          onClose={() => setQuickOpen(false)}
+        >
+          <QuickChecks
+            tasks={tasks}
+            onAdd={addCheck}
+            onComplete={completeCheck}
+            onOpen={(t) => {
+              setQuickOpen(false);
+              openTask(t);
+            }}
+          />
+          <button
+            className="weekly-toggle"
+            disabled={weeklyBusy}
+            onClick={() => {
+              setQuickOpen(false);
+              void summarizeWeek();
+            }}
+          >
+            ✦ 최근 7일 완료 요약
+          </button>
+        </Dialog>
+      )}
       {filtersOpen && (
         <Dialog
           className="cluster-dialog filter-dialog"
@@ -912,7 +1140,7 @@ export default function Home() {
                   {progressStages.find(
                     (stage) => stage.name === selected.progress,
                   )?.description ||
-                    "기존 긴급도와 다른 기준입니다. 직접 선택해주세요."}
+                    "카드 색상으로 표시됩니다. 직접 선택해주세요."}
                 </small>
               </label>
               <label>
@@ -944,22 +1172,24 @@ export default function Home() {
               </label>
             </div>
             <div className="scores new-scores">
-              <label>
-                중요도 <b>{selected.importance}</b>
-                <input
-                  aria-label="중요도"
-                  type="range"
-                  min={1}
-                  max={5}
-                  value={selected.importance}
-                  onChange={(e) =>
-                    select({ ...selected, importance: +e.target.value })
-                  }
-                />
-                <small>
-                  1~2 일반 · 3~5 중요 / 최초 {selected.initial.importance}
-                </small>
-              </label>
+              {(["importance", "urgency"] as const).map((key) => (
+                <label key={key}>
+                  {key === "importance" ? "중요한가요?" : "긴급한가요?"}
+                  <select
+                    aria-label={key === "importance" ? "중요" : "긴급"}
+                    value={selected[key] >= 3 ? "yes" : "no"}
+                    onChange={(e) =>
+                      select({
+                        ...selected,
+                        [key]: e.target.value === "yes" ? 5 : 1,
+                      })
+                    }
+                  >
+                    <option value="yes">예</option>
+                    <option value="no">아니오</option>
+                  </select>
+                </label>
+              ))}
               <label>
                 처리 예상시간 (선택)
                 <select
@@ -977,8 +1207,8 @@ export default function Home() {
             </div>
             {needsAttention(selected) && (
               <div className="attention-explainer" role="note">
-                집중 관리 대상 · 중요도 3~5 + 지연·막힘·미해결. 필요한
-                결정·지원·후속 대응을 챙겨주세요.
+                먼저 집중할 일 · 중요 예 + 긴급 예. 담당자와 다음 행동을
+                정해주세요.
               </div>
             )}
             {tasks.some((t) => t.id === selected.id) && (
@@ -989,7 +1219,8 @@ export default function Home() {
                   {selected.urgency} · 기존 난이도 {selected.difficulty}
                 </p>
                 <small>
-                  긴급도·난이도 기록은 보존하며 새 좌표에는 사용하지 않습니다.
+                  과거 척도와 변경 기록은 보존됩니다. 현재 위치는 중요·긴급 각각
+                  예/아니오로 판단합니다.
                 </small>
               </details>
             )}
@@ -1000,11 +1231,11 @@ export default function Home() {
             </div>
             {tasks.some((t) => t.id === selected.id) && (
               <label>
-                기준 변경 사유
+                기준 변경 메모 (선택)
                 <input
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="중요도·진행상황이 바뀌었다면 이유를 남겨주세요"
+                  placeholder="판단 이유를 남기고 싶다면 적어주세요"
                 />
               </label>
             )}
@@ -1146,6 +1377,28 @@ export default function Home() {
               >
                 프로젝트 전체 흐름 보기 →
               </button>
+            </section>
+          )}
+          {!!selected.quick_checks?.some((c) => c.completed_at) && (
+            <section className="completed-checks">
+              <h3>즉시 확인 완료 기록</h3>
+              {selected.quick_checks
+                .filter((c) => c.completed_at)
+                .map((c) => (
+                  <article key={c.id}>
+                    <strong>✓ {c.text}</strong>
+                    <p>
+                      {c.summary
+                        ? `AI 정리: ${c.summary}`
+                        : "원문으로 완료 기록 보존"}
+                    </p>
+                    <small>
+                      {names[c.completed_by || ""] || c.completed_by} ·{" "}
+                      {new Date(c.completed_at!).toLocaleString("ko-KR")} · 업무
+                      전체 완료와 별개
+                    </small>
+                  </article>
+                ))}
             </section>
           )}
           <section className="history">
